@@ -278,6 +278,57 @@ async function searchOpenLibrary({ field, term, lang }, signal) {
   });
 }
 
+/* ------------------------------------------------- matching & series */
+
+const THAI_DIGITS = { '๐':'0','๑':'1','๒':'2','๓':'3','๔':'4','๕':'5','๖':'6','๗':'7','๘':'8','๙':'9' };
+const arabic = (str) => String(str).replace(/[๐-๙]/g, (d) => THAI_DIGITS[d]);
+
+/** Volume number, if the title carries one. */
+function volumeOf(title) {
+  const m = String(title || '').match(/(?:เล่ม|ตอนที่|vol\.?|volume|#)\s*([\d๐-๙]+)/i);
+  return m ? Number(arabic(m[1])) : null;
+}
+
+/** The title with its volume markers removed, so every book in a series
+    reduces to the same string. */
+function seriesBase(title) {
+  return String(title || '')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/(เล่ม|ตอนที่|ภาค|vol\.?|volume|book|part)\s*[\d๐-๙]+(\s*[-–]\s*[\d๐-๙]+)?/gi, ' ')
+    .replace(/[\d๐-๙]+\s*$/, ' ')
+    .replace(/[-–—:,"'""]+\s*$/, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Does this result actually answer the query? Thai shop search engines
+    return 20 loosely-related titles rather than nothing, so "Assassination
+    Classroom" comes back with "Google Classroom". Require the whole phrase,
+    or every word of a multi-word query, somewhere in title or author. */
+function matchesQuery(book, term) {
+  const q = slug(term);
+  if (!q) return true;
+  const hay = slug([book.title, ...(book.authors || [])].join(' '));
+  if (hay.includes(q)) return true;
+  const words = q.split(' ').filter(Boolean);
+  return words.length > 1 && words.every((w) => hay.includes(w));
+}
+
+/** Loose title match for "is this the same book": shops add "(PDF)", box-set
+    wording and so on. Volume numbers are compared first, because plain
+    containment makes "เล่ม 2" look like a match for "เล่ม 21". */
+function sameBook(a, b) {
+  const va = volumeOf(a);
+  const vb = volumeOf(b);
+  if (va !== null && vb !== null && va !== vb) return false;
+  const x = slug(a);
+  const y = slug(b);
+  if (!x || !y) return false;
+  const short = x.length <= y.length ? x : y;
+  const long = x.length <= y.length ? y : x;
+  return long.includes(short) && short.length >= 4;
+}
+
 /* ------------------------------------------------- Thai shops (no API) */
 
 /* Thai bookshops publish no API and send no CORS headers, so their pages are
@@ -389,6 +440,7 @@ async function searchMeb({ term }, signal) {
       isbn13: isbn || null,
       isbn10: null,
       subjects: b.category_name ? [decodeEntities(b.category_name)] : [],
+      volume: Number(b.series_issue_id) || null,
       price: Number.isFinite(baht) ? `฿${baht.toLocaleString('th-TH')}` : null,
       buyLink: url,
       infoLink: url,
@@ -457,7 +509,9 @@ async function searchSeed({ field, term }, signal) {
   } catch {
     throw Object.assign(new Error('bad payload'), { code: 'http' });
   }
-  return (data.products || []).map(seedProduct).filter(Boolean);
+  const books = (data.products || []).map(seedProduct).filter(Boolean);
+  // An ISBN search already matched on SKU, so only keyword results need this.
+  return field === 'isbn' ? books : books.filter((b) => matchesQuery(b, term));
 }
 
 /* ----------------------------------------------------- source: Gutendex */
@@ -776,7 +830,9 @@ function updateBook(id, patch) {
 }
 
 function findBook(id) {
-  return library.find((b) => b.id === id) || results.find((b) => b.id === id);
+  return library.find((b) => b.id === id)
+    || results.find((b) => b.id === id)
+    || relatedBooks.get(id);
 }
 
 /* ----------------------------------------------------------------- render */
@@ -930,6 +986,7 @@ function openDialog(id) {
     ${book.description ? `<p class="desc">${esc(book.description).slice(0, 1400)}</p>` : ''}
     ${free.length ? `<p class="links-title">อ่านหรือโหลดฟรี</p>
       <div class="links">${free.map(linkRow).join('')}</div>` : ''}
+    <div class="series-slot"></div>
     <p class="links-title">ซื้อหรือยืม</p>
     <div class="links">${stores.map(linkRow).join('')}</div>
     ${saved ? `
@@ -961,58 +1018,84 @@ const CHECKABLE = {
   meb: { run: searchMeb, source: 'meb' },
 };
 
-/** Loose title match — shop listings add volume numbers, "(PDF)", box-set
-    wording and so on, so require containment one way or the other. */
-function sameBook(a, b) {
-  const x = slug(a);
-  const y = slug(b);
-  if (!x || !y) return false;
-  const short = x.length <= y.length ? x : y;
-  const long = x.length <= y.length ? y : x;
-  return long.includes(short) && short.length >= 4;
-}
-
+/* One search per shop answers both questions a dialog asks: does this shop
+   carry the book, and what else is in the series. Searching the series base
+   rather than the exact title returns the sibling volumes too. */
 async function verifyShops(book) {
+  const base = seriesBase(book.title) || book.title;
   const rows = [...document.querySelectorAll('#dialog-body .link-row.state-check')];
-  if (!rows.length) return;
-  const cached = shopChecks.get(book.id) || {};
-  const controller = new AbortController();
+  const cached = shopChecks.get(book.id) || (shopChecks.set(book.id, {}), shopChecks.get(book.id));
+  const signal = new AbortController().signal;
 
-  await Promise.all(rows.map(async (row) => {
-    const key = row.dataset.shop;
-    const shop = CHECKABLE[key];
-    if (!shop) return;
-
-    let url = cached[key];
-    if (url === undefined) {
+  const found = await Promise.all(Object.keys(CHECKABLE).map(async (key) => {
+    if (cached[key] === undefined) {
       try {
-        const hits = await shop.run({ field: 'all', term: book.title }, controller.signal);
-        const hit = hits.find((h) => sameBook(h.title, book.title));
-        url = hit?.shopLinks?.[key] || null;
+        cached[key] = await CHECKABLE[key].run({ field: 'all', term: base }, signal);
       } catch {
-        url = undefined; // the check failed, which is not the same as "not stocked"
+        cached[key] = null; // the check failed, which is not "not stocked"
       }
-      cached[key] = url;
-      shopChecks.set(book.id, cached);
     }
+    return [key, cached[key]];
+  }));
 
-    // The dialog may have been closed or swapped while we waited.
-    if (!row.isConnected) return;
+  for (const row of rows) {
+    if (!row.isConnected) continue;
+    const hits = cached[row.dataset.shop];
+    const url = hits?.find((h) => sameBook(h.title, book.title))?.shopLinks?.[row.dataset.shop];
     row.querySelector('.spinner')?.remove();
     row.classList.remove('state-check');
-
     if (url) {
       row.href = url;
       row.classList.add('state-have');
       row.querySelector('.kind').textContent = 'มีเล่มนี้';
-    } else if (url === null) {
+    } else if (hits) {
       row.classList.add('state-none');
       row.querySelector('.kind').textContent = 'ไม่พบ';
     } else {
       row.querySelector('.kind').textContent = 'ตรวจไม่ได้';
     }
-  }));
+  }
+
+  renderSeries(book, found.flatMap(([, hits]) => hits || []));
 }
+
+/* --------------------------------------------------------- same series */
+
+// Books shown only as series suggestions are not in `results`, so keep them
+// reachable for when one is clicked.
+const relatedBooks = new Map();
+
+function renderSeries(book, candidates) {
+  const slot = document.querySelector('#dialog-body .series-slot');
+  if (!slot || !slot.isConnected) return;
+
+  const base = slug(seriesBase(book.title));
+  const seen = new Set();
+  const siblings = candidates
+    .filter((b) => base && slug(seriesBase(b.title)) === base && !sameBook(b.title, book.title))
+    .filter((b) => {
+      const key = slug(b.title);
+      return seen.has(key) ? false : seen.add(key);
+    })
+    .map((b) => ({ ...b, id: b.id || fingerprint(b) }))
+    .sort((a, b2) => (volumeOf(a.title) ?? 1e6) - (volumeOf(b2.title) ?? 1e6))
+    .slice(0, 12);
+
+  if (!siblings.length) { slot.innerHTML = ''; return; }
+  siblings.forEach((b) => relatedBooks.set(b.id, b));
+
+  slot.innerHTML = `
+    <p class="links-title">เล่มอื่นในชุดนี้ <span class="muted-count">${siblings.length}</span></p>
+    <div class="series-strip">
+      ${siblings.map((b) => `
+        <button class="series-item" data-act="open" data-id="${esc(b.id)}" title="${esc(b.title)}">
+          ${coverHTML(b, 'series-cover')}
+          <span class="series-vol">${volumeOf(b.title) ? `เล่ม ${volumeOf(b.title)}` : esc(b.title.slice(0, 18))}</span>
+          ${b.price ? `<span class="series-price">${esc(b.price)}</span>` : ''}
+        </button>`).join('')}
+    </div>`;
+}
+
 
 /* ------------------------------------------------------------ import/export */
 

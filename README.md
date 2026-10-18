@@ -125,6 +125,24 @@ reports EPUB/PDF availability, Open Library reports its ebook access, and Gutenb
 Classification is only as good as the categories the shops publish; a book filed under nothing
 useful gets no kind tag rather than a wrong one.
 
+## Same series
+
+Opening a book shows the other volumes in its series, ordered by volume number, with covers and
+prices. Clicking one opens that book, so a series can be browsed without going back to search.
+
+There is no series ID to rely on — meb's `series_issue_id` turns out to be the *volume* number,
+not a series key — so siblings are grouped by title instead: volume markers (`เล่ม 7`, `vol. 3`,
+bracketed notes like `(PDF)` or `(จบ)`) are stripped, and books sharing the remaining base are
+treated as one series.
+
+This costs no extra requests. The availability check already queries meb and SE-ED when a dialog
+opens; it now searches the *series base* rather than the exact title, so one search per shop
+answers both questions.
+
+Volume numbers are compared before titles when deciding whether two entries are the same book.
+Plain text containment makes `เล่ม 2` look like a match for `เล่ม 21`, which would wrongly hide a
+volume from the strip and mislabel shop availability.
+
 ## Shop availability
 
 Opening a book shows where to get it. Those rows are not all equally certain, so the dialog
@@ -205,8 +223,13 @@ Notes:
   is greyed out. Everything else — SE-ED, Google Books, Open Library, วิกิซอร์ซ — works there.
 - **Naiin** is link-only: its search is Cloudflare-protected (`403`), so it cannot be a result
   source. Its product pages do load, but that does not help you find a book you cannot search for.
-- **Shop search is fuzzy.** SE-ED in particular returns 20 loosely-related titles rather than
-  nothing when it has no real match, so a miss can look like a page of wrong answers.
+- **Thai shop search is fuzzy, and is now filtered.** SE-ED returns 20 loosely-related titles
+  rather than nothing when it has no real match — "Assassination Classroom" came back with
+  "Google Classroom". Results it returns must now contain the whole query phrase, or every word
+  of a multi-word query, in the title or author. A shop with no genuine match returns nothing
+  instead of a page of wrong answers. The trade-off is that an author-only search may drop
+  SE-ED, since its search API gives no author for physical books; Google Books and Open Library
+  cover that case.
 - The shop sources read public listing pages the way a browser does. That is fine for personal
   use; do not point them at bulk or automated traffic.
 - **Hytexts**, **Asia Books**, **Ookbee** and **ReadAWrite** were left out on purpose: their
