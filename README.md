@@ -90,6 +90,27 @@ is known, so they land on the right edition.
 **The library** stores books under three statuses — *To buy*, *To download*, *Got it* — each with
 a note. Filter, sort, export to JSON, import it back.
 
+## Shop availability
+
+Opening a book shows where to get it. Those rows are not all equally certain, so the dialog
+says which is which rather than presenting every shop as a sure thing:
+
+| State | Meaning |
+| --- | --- |
+| **มีเล่มนี้** (green) | A source returned this exact book. The link goes straight to the product page. |
+| **กำลังตรวจ…** | meb or SE-ED is being queried right now. |
+| **ไม่พบ** (dimmed, dashed) | That shop was queried and had nothing matching. |
+| **ตรวจไม่ได้** | The check itself failed — not the same as the shop not stocking it. |
+| no label change | The shop has no API we can reach, so the link is an honest search guess. |
+
+Only meb and SE-ED can be checked, because they are the two shops with a reachable search.
+Naiin, Chulabook, B2S, Kinokuniya and the international stores are never dimmed — we have no
+way to know, and greying them out would be a guess dressed up as a fact.
+
+Checks run when the dialog opens and are cached per book for the session. Titles are matched
+loosely in both directions, since shop listings add volume numbers, `(PDF)` and box-set
+wording to the same book.
+
 ## Look and feel
 
 The interface is in Thai. Two controls sit in the top right:

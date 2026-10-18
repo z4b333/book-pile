@@ -122,6 +122,7 @@ function mergeBooks(a, b) {
   if ((b.authors || []).length > (out.authors || []).length) out.authors = b.authors;
   out.sources = [...new Set([...(out.sources || []), ...(b.sources || [])])];
   out.languages = [...new Set([...(out.languages || []), ...(b.languages || [])])];
+  out.shopLinks = { ...(b.shopLinks || {}), ...(out.shopLinks || {}) };
   out.freeLinks = dedupeLinks([...(out.freeLinks || []), ...(b.freeLinks || [])]);
   out.subjects = [...new Set([...(out.subjects || []), ...(b.subjects || [])])].slice(0, 8);
   return out;
@@ -342,6 +343,7 @@ async function searchMeb({ field, term }, signal) {
       infoLink: href.startsWith('http') ? href : `https://www.mebmarket.com${href}`,
       languages: ['tha'],
       sources: ['meb'],
+      shopLinks: { meb: href.startsWith('http') ? href : `https://www.mebmarket.com${href}` },
       freeLinks: [],
     };
   }).filter(Boolean);
@@ -382,6 +384,7 @@ function seedProduct(entry) {
     infoLink: url,
     languages: ['tha'],
     sources: ['SE-ED'],
+    shopLinks: { seed: url },
     freeLinks: [],
   };
 }
@@ -518,16 +521,32 @@ function isTranslated(book) {
 
 /** Thai bookshops and e-book shops. None of them offer an API, so these are
     search URLs — each pattern confirmed against the live site. */
+/* A link is in one of three states:
+     have    — a source returned this exact book, so we hold its product URL
+     check   — meb and SE-ED can be queried, so the dialog finds out on open
+     search  — the shop has no API we can reach; the link is an honest guess
+   Only a shop we actually checked and that came back empty is greyed out;
+   an unverifiable shop is never dimmed, because we do not know. */
 function thaiStoreLinks(q, qThai) {
   return [
-    { label: 'SE-ED ซีเอ็ด', url: `https://www.se-ed.com/search?filter.keyword=${qThai}`, kind: 'ร้านหนังสือ' },
+    { shop: 'seed', label: 'SE-ED ซีเอ็ด', url: `https://www.se-ed.com/search?filter.keyword=${qThai}`, kind: 'ร้านหนังสือ' },
     { label: 'นายอินทร์ Naiin', url: `https://www.naiin.com/search?keyword=${qThai}`, kind: 'ร้านหนังสือ' },
-    { label: 'meb (อีบุ๊ก)', url: `https://www.mebmarket.com/index.php?action=search_book&type=all&search=${qThai}`, kind: 'e-book' },
+    { shop: 'meb', label: 'meb (อีบุ๊ก)', url: `https://www.mebmarket.com/index.php?action=search_book&type=all&search=${qThai}`, kind: 'e-book' },
     { label: 'ศูนย์หนังสือจุฬาฯ', url: `https://www.chulabook.com/categories?text=${qThai}`, kind: 'ร้านหนังสือ' },
     { label: 'B2S', url: `https://www.b2s.co.th/search?q=${qThai}`, kind: 'ร้านหนังสือ' },
     { label: 'Kinokuniya ไทย', url: `https://kinokuniya.co.th/search?q=${q}`, kind: 'นำเข้า' },
     { label: 'วัชรญาณ', url: `https://vajirayana.org/search/node/${qThai}`, kind: 'free read' },
   ];
+}
+
+/** Promote the shops we already know about, and mark the rest checkable. */
+function withShopState(links, book) {
+  return links.map((l) => {
+    if (!l.shop) return l;
+    const known = (book.shopLinks || {})[l.shop];
+    if (known) return { ...l, url: known, state: 'have', kind: 'มีเล่มนี้' };
+    return { ...l, state: 'check', kind: 'กำลังตรวจ…' };
+  });
 }
 
 /** Where to buy or borrow — built from the book's own title/author/ISBN.
@@ -541,7 +560,7 @@ function storeLinks(book) {
   const isbn = book.isbn13 || book.isbn10;
   const links = [];
 
-  if (isThai(book)) links.push(...thaiStoreLinks(q, qThai));
+  if (isThai(book)) links.push(...withShopState(thaiStoreLinks(q, qThai), book));
   if (book.buyLink) links.push({ label: 'Google Play Books', url: book.buyLink, kind: book.price || 'buy' });
   links.push({ label: 'Amazon', url: isbn ? `https://www.amazon.com/s?k=${isbn}` : `https://www.amazon.com/s?k=${q}&i=stripbooks`, kind: 'buy' });
   links.push({ label: 'Bookshop.org', url: isbn ? `https://bookshop.org/search?keywords=${isbn}` : `https://bookshop.org/search?keywords=${q}`, kind: 'indie' });
@@ -552,8 +571,10 @@ function storeLinks(book) {
   links.push({ label: 'WorldCat (libraries)', url: isbn ? `https://search.worldcat.org/search?q=bn%3A${isbn}` : `https://search.worldcat.org/search?q=${q}`, kind: 'borrow' });
   links.push({ label: 'Standard Ebooks', url: `https://standardebooks.org/ebooks?query=${q}`, kind: 'free' });
   if (!isThai(book)) {
-    links.push({ label: 'หาฉบับแปลไทย — SE-ED', url: `https://www.se-ed.com/search?filter.keyword=${qThai}`, kind: 'ฉบับไทย?' });
-    links.push({ label: 'หาฉบับแปลไทย — meb', url: `https://www.mebmarket.com/index.php?action=search_book&type=all&search=${qThai}`, kind: 'ฉบับไทย?' });
+    links.push(...withShopState([
+      { shop: 'seed', label: 'หาฉบับแปลไทย — SE-ED', url: `https://www.se-ed.com/search?filter.keyword=${qThai}`, kind: 'ฉบับไทย?' },
+      { shop: 'meb', label: 'หาฉบับแปลไทย — meb', url: `https://www.mebmarket.com/index.php?action=search_book&type=all&search=${qThai}`, kind: 'ฉบับไทย?' },
+    ], book));
   }
   if (book.infoLink) links.push({ label: book.sources?.[0] || 'Source page', url: book.infoLink, kind: 'details' });
 
@@ -784,8 +805,10 @@ function openDialog(id) {
   const free = book.freeLinks || [];
   const stores = storeLinks(book);
 
-  const linkRow = (l) => `<a class="link-row${/free/i.test(l.kind) ? ' is-free' : ''}"
+  const linkRow = (l) => `<a class="link-row${/free/i.test(l.kind) ? ' is-free' : ''}${
+         l.state ? ` state-${l.state}` : ''}"${l.shop ? ` data-shop="${l.shop}"` : ''}
        href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">
+       ${l.state === 'check' ? '<span class="spinner"></span>' : ''}
        <span>${esc(l.label)}</span><span class="kind">${esc(l.kind)}</span></a>`;
 
   $('#dialog-body').innerHTML = `
@@ -825,6 +848,71 @@ function openDialog(id) {
     </div>`;
 
   $('#book-dialog').showModal();
+  verifyShops(book);
+}
+
+/* ------------------------------------------------- live shop availability */
+
+/* meb and SE-ED are the two shops we can actually query, so when a dialog
+   opens we ask them whether they carry this book and update those rows in
+   place: a direct product link if they do, greyed out if they do not. */
+const shopChecks = new Map(); // book id -> { seed: url|null, meb: url|null }
+const CHECKABLE = {
+  seed: { run: searchSeed, source: 'SE-ED' },
+  meb: { run: searchMeb, source: 'meb' },
+};
+
+/** Loose title match — shop listings add volume numbers, "(PDF)", box-set
+    wording and so on, so require containment one way or the other. */
+function sameBook(a, b) {
+  const x = slug(a);
+  const y = slug(b);
+  if (!x || !y) return false;
+  const short = x.length <= y.length ? x : y;
+  const long = x.length <= y.length ? y : x;
+  return long.includes(short) && short.length >= 4;
+}
+
+async function verifyShops(book) {
+  const rows = [...document.querySelectorAll('#dialog-body .link-row.state-check')];
+  if (!rows.length) return;
+  const cached = shopChecks.get(book.id) || {};
+  const controller = new AbortController();
+
+  await Promise.all(rows.map(async (row) => {
+    const key = row.dataset.shop;
+    const shop = CHECKABLE[key];
+    if (!shop) return;
+
+    let url = cached[key];
+    if (url === undefined) {
+      try {
+        const hits = await shop.run({ field: 'all', term: book.title }, controller.signal);
+        const hit = hits.find((h) => sameBook(h.title, book.title));
+        url = hit?.shopLinks?.[key] || null;
+      } catch {
+        url = undefined; // the check failed, which is not the same as "not stocked"
+      }
+      cached[key] = url;
+      shopChecks.set(book.id, cached);
+    }
+
+    // The dialog may have been closed or swapped while we waited.
+    if (!row.isConnected) return;
+    row.querySelector('.spinner')?.remove();
+    row.classList.remove('state-check');
+
+    if (url) {
+      row.href = url;
+      row.classList.add('state-have');
+      row.querySelector('.kind').textContent = 'มีเล่มนี้';
+    } else if (url === null) {
+      row.classList.add('state-none');
+      row.querySelector('.kind').textContent = 'ไม่พบ';
+    } else {
+      row.querySelector('.kind').textContent = 'ตรวจไม่ได้';
+    }
+  }));
 }
 
 /* ------------------------------------------------------------ import/export */

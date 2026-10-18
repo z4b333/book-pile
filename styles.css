@@ -601,6 +601,23 @@ dialog::backdrop { background: oklch(15% 0.02 60 / 0.55); backdrop-filter: blur(
   white-space: nowrap;
 }
 .link-row.is-free .kind { color: var(--free); }
+
+/* Availability states. Only a shop we queried and that had nothing is
+   dimmed — an unverifiable shop keeps its normal weight. */
+.link-row.state-have {
+  border-color: color-mix(in oklab, var(--free) 45%, var(--line));
+  background: var(--free-soft);
+}
+.link-row.state-have .kind { color: var(--free); font-weight: 700; }
+.link-row.state-check { opacity: .7; }
+.link-row.state-check .kind { color: var(--muted); }
+.link-row.state-none {
+  opacity: .45;
+  background: transparent;
+  border-style: dashed;
+}
+.link-row.state-none:hover { opacity: .75; background: var(--surface-2); transform: none; }
+.link-row.state-none .kind { font-weight: 600; }
 .note-field {
   width: 100%;
   min-height: 74px;
