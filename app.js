@@ -327,45 +327,78 @@ async function proxyText(target, { format = 'text', needsJs = false } = {}, sign
   throw lastError?.code ? lastError : Object.assign(new Error('unreachable'), { code: 'offline' });
 }
 
-/** meb — Thailand's largest e-book shop. Results are written in by script, so
-    this one always needs the JS-rendering reader. Markup is semantic. */
-async function searchMeb({ field, term }, signal) {
-  if (field === 'isbn') return [];
-  const html = await proxyText(
-    `https://www.mebmarket.com/index.php?action=search_book&type=all&search=${encodeURIComponent(term)}`,
-    { format: 'html', needsJs: true },
-    signal,
-  );
-  const doc = new DOMParser().parseFromString(html, 'text/html');
+/* meb — Thailand's largest e-book shop. Its pages are built by script, so
+   there is nothing to scrape from the HTML; instead this calls the same
+   private endpoint the site itself uses. That endpoint is POST-only, and the
+   public reader can only issue GETs, so meb needs the local helper running.
+   Payload shape was taken from the site's own request: the sort object is
+   {by, type} and empty fields are omitted, both of which it rejects if
+   wrong. */
+const MEB_API = 'https://www.mebmarket.com/ajax.php';
 
-  return [...doc.querySelectorAll('.parent_book_listing')].slice(0, 20).map((card) => {
-    const link = card.querySelector('h3.book_name a');
-    const title = link?.textContent.trim();
-    if (!title) return null;
-    const meta = [...card.querySelectorAll('.book_meta_info a')].map((a) => a.textContent.trim());
-    const href = link.getAttribute('href') || '';
+/** meb returns HTML-encoded text ("&ldquo;" and friends) even over its API. */
+function decodeEntities(str) {
+  if (!str || !str.includes('&')) return str || '';
+  const area = document.createElement('textarea');
+  area.innerHTML = str;
+  return area.value;
+}
 
+async function searchMeb({ term }, signal) {
+  if (!await probeLocalProxy()) {
+    throw Object.assign(new Error('needs the local helper'), { code: 'needs-local' });
+  }
+
+  const payload = {
+    token: '', filter: { type: 'all', value: term }, sort: { by: 'date', type: 'desc' },
+    exact_keyword: '', price: 'all', series_id: '', bundle_type: '',
+    result_per_page: 40, page_no: 1, app_id: 'ASK', app_platform: 'WEB',
+    content_type_list: null, debug_elastic: 1, category_group_id: '',
+  };
+  const res = await fetch(`${LOCAL_PROXY}?url=${encodeURIComponent(MEB_API)}`, {
+    method: 'POST',
+    signal: timedSignal(signal),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      api: 'Store', method: 'userSearchBooks2', data: JSON.stringify(payload),
+    }),
+  });
+  if (!res.ok) throw Object.assign(new Error(`${res.status}`), { code: 'http' });
+
+  let data;
+  try {
+    data = JSON.parse(await res.text());
+  } catch {
+    throw Object.assign(new Error('bad payload'), { code: 'http' });
+  }
+  if (!data.status?.success) throw Object.assign(new Error('rejected'), { code: 'http' });
+
+  return (data.data?.book_list || []).map((b) => {
+    const url = `https://www.mebmarket.com/ebook-${b.book_id}-x`;
+    const isbn = [b.isbn_ebook, b.isbn].find((i) => /^\d{13}$/.test(i || ''));
+    const baht = Number(b.book_baht_price);
     return {
-      title,
-      authors: meta[0] ? [meta[0]] : [],
+      title: decodeEntities(b.book_name),
+      authors: b.book_author ? [decodeEntities(b.book_author)] : [],
       year: null,
-      publisher: 'meb',
+      publisher: decodeEntities(b.book_publisher) || 'meb',
       pages: null,
       description: null,
-      cover: card.querySelector('img.img_book_list')?.getAttribute('src') || null,
-      isbn13: null,
+      // The API hands back the thumbnail folder, not a file.
+      cover: b.book_thumbnail_path ? `${b.book_thumbnail_path}web_large2.gif` : null,
+      isbn13: isbn || null,
       isbn10: null,
-      subjects: meta.slice(1, 3),
-      price: card.textContent.match(/฿\s*[\d,]+(?:\.\d+)?/)?.[0] || null,
-      buyLink: href.startsWith('http') ? href : `https://www.mebmarket.com${href}`,
-      infoLink: href.startsWith('http') ? href : `https://www.mebmarket.com${href}`,
+      subjects: b.category_name ? [decodeEntities(b.category_name)] : [],
+      price: Number.isFinite(baht) ? `฿${baht.toLocaleString('th-TH')}` : null,
+      buyLink: url,
+      infoLink: url,
       languages: ['tha'],
       digital: true,
       sources: ['meb'],
-      shopLinks: { meb: href.startsWith('http') ? href : `https://www.mebmarket.com${href}` },
+      shopLinks: { meb: url },
       freeLinks: [],
     };
-  }).filter(Boolean);
+  });
 }
 
 /** SE-ED — the shop's own search API, the same one its website calls. Returns
@@ -642,6 +675,7 @@ const FAIL_REASON = {
   timeout: 'ตอบช้าเกินไป',
   offline: 'เชื่อมต่อไม่ได้',
   http: 'ตอบกลับผิดพลาด',
+  'needs-local': 'ต้องรัน node server.js',
 };
 
 /** Each source is fetched independently and rendered the moment it lands,
@@ -1067,6 +1101,19 @@ document.addEventListener('keydown', (e) => {
 });
 
 buildSwatches();
+
+/* meb can only be reached through the local helper, so say so up front
+   instead of letting every search report a failure. */
+probeLocalProxy().then((up) => {
+  if (up) return;
+  const box = $('input[name="source"][value="meb"]');
+  if (!box) return;
+  box.checked = false;
+  box.disabled = true;
+  const chip = box.closest('.chip');
+  chip.classList.add('chip-off');
+  chip.title = 'meb ต้องรัน node server.js ในเครื่อง — ร้านนี้ไม่มี API แบบ GET';
+});
 
 function showView(name) {
   $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${name}`));

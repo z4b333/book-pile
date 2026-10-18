@@ -27,7 +27,7 @@ detects the helper is missing and routes shop requests through a public reader i
 
 | Source | What it adds | Key needed |
 | --- | --- | --- |
-| **meb** (mebmarket.com) | Thailand's largest e-book shop — cover, title, author, category, direct product link | No |
+| **meb** (mebmarket.com) | Thailand's largest e-book shop — cover, title, author, ISBN, category, price, direct product link. **Needs `node server.js`** (see below) | No |
 | **SE-ED** (se-ed.com) | The shop's own search API — cover, title, price, year, and an ISBN in the SKU | No |
 | [Google Books](https://developers.google.com/books) | Thai e-books (SE-ED, Amarin and others publish here), descriptions, prices, buy links. `langRestrict=th` in Thai scope | No |
 | [Open Library](https://openlibrary.org/developers/api) | Covers, ISBNs, borrow/read-free status. `language=tha` in Thai scope | No |
@@ -42,16 +42,31 @@ Books and Open Library records for the same book rather than appearing twice.
 ### Reaching the Thai shops
 
 Neither shop publishes an API for third parties and neither sends CORS headers, so the browser
-cannot call them directly. Requests go through a proxy, picked per request:
+cannot call them directly. They are reached in two different ways, and the difference matters:
 
-- **`server.js`** (local, ~400ms) — a dependency-free Node helper that serves the static files
-  and forwards requests to an allowlist of shop hosts. It is a plain fetch.
-- **`r.jina.ai`** (public, ~1.3s) — used when `server.js` is not running, and *always* for meb.
+**SE-ED** is read through its own JSON search API (`mp-api.se-ed.com/web-bff/search-product`),
+a plain GET. That works through either proxy — the local helper (~400ms) or the public reader
+(~1.3s) — and returns identical bytes, so one parser covers both. SE-ED works everywhere,
+including GitHub Pages.
 
-Why meb always uses the public one: meb writes its results in with JavaScript, so a plain fetch
-returns an empty shell. The public reader runs a real browser, so it sees the rendered page.
-SE-ED needs no rendering because it is read through its own JSON search API, which returns the
-same bytes over either route — one parser covers both.
+**meb** is different. Its pages are built by script, so there is nothing in the HTML to scrape,
+and its search endpoint (`ajax.php`) is **POST-only**. The public reader can only issue GETs,
+so **meb only works when `server.js` is running**. When it is not, the meb source is disabled
+in the UI with a note, rather than quietly returning nothing.
+
+The meb payload is fussy and was taken from the site's own request: `sort` must be
+`{by, type}` (not `sort_by`), and empty fields must be omitted rather than sent as `""` — it
+rejects both mistakes with its own error codes. Its responses are HTML-encoded even over the
+API, so text is decoded before use.
+
+> **Earlier versions of this README claimed meb worked without the helper.** It did, briefly,
+> because `r.jina.ai` used to execute JavaScript on the free tier. It no longer does —
+> `x-engine: browser` now returns `401` — so scraping meb's rendered HTML stopped working.
+> Hitting the real API is both the fix and a better source: it carries ISBNs, so meb results
+> now merge with Google Books and Open Library entries instead of duplicating them.
+
+**Naiin cannot be searched at all.** Its product pages fetch fine, but `/search` is behind
+Cloudflare and answers `403` to any automated request. It stays a link-only shop.
 
 The local helper only proxies hosts on its allowlist, so it never becomes an open relay.
 
@@ -159,8 +174,8 @@ except the book APIs above. Clearing site data clears the library — use **Expo
 
 The app is static, so Pages serves it as-is. `server.js` is not uploaded-and-run by Pages —
 Pages only serves files — so the shop lookups fall back to the public reader automatically.
-That path is tested: on a plain static server the same search returns the same 47 results
-(meb 6, SE-ED 20, วิกิซอร์ซ 20), just ~1s slower per shop.
+SE-ED, Google Books, Open Library and วิกิซอร์ซ all work there. **meb does not** — its endpoint
+is POST-only and needs the helper, so the page disables that source and says so.
 
 ```bash
 git remote add origin https://github.com/<user>/<repo>.git
@@ -186,10 +201,12 @@ Notes:
 
 ## Known gaps
 
-- **meb results carry no price.** meb only shows a price on the product page, not in search
-  results. SE-ED prices are included.
-- **Naiin** is link-only: its Cloudflare rules reject automated requests, so it cannot be a
-  result source, and its URL pattern is the one that could not be confirmed from this machine.
+- **meb needs the local helper.** On GitHub Pages the meb source is switched off and the chip
+  is greyed out. Everything else — SE-ED, Google Books, Open Library, วิกิซอร์ซ — works there.
+- **Naiin** is link-only: its search is Cloudflare-protected (`403`), so it cannot be a result
+  source. Its product pages do load, but that does not help you find a book you cannot search for.
+- **Shop search is fuzzy.** SE-ED in particular returns 20 loosely-related titles rather than
+  nothing when it has no real match, so a miss can look like a page of wrong answers.
 - The shop sources read public listing pages the way a browser does. That is fine for personal
   use; do not point them at bulk or automated traffic.
 - **Hytexts**, **Asia Books**, **Ookbee** and **ReadAWrite** were left out on purpose: their
