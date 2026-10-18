@@ -90,6 +90,26 @@ is known, so they land on the right edition.
 **The library** stores books under three statuses — *To buy*, *To download*, *Got it* — each with
 a note. Filter, sort, export to JSON, import it back.
 
+## Formats
+
+Books are tagged **นิยาย**, **ไลท์โนเวล**, **การ์ตูน** and **อีบุ๊ก**, and the format chips on the
+search page narrow results to any of the ticked tags. Tags also show on every card and in the
+library, where the text filter matches them — typing `การ์ตูน` finds the manga you saved.
+
+These are not one dimension, so a book carries a *set* rather than a single label. A light
+novel sold as a PDF is both ไลท์โนเวล and อีบุ๊ก, and ticking either chip finds it. The kind
+tags are mutually exclusive and resolved most-specific-first, so a graphic novel is การ์ตูน and
+never also นิยาย, and ไลท์โนเวล is never doubled up as นิยาย.
+
+Detection reads each source's own category data plus the title: meb and SE-ED category names,
+Google Books categories, Open Library subjects. `อีบุ๊ก` is separate and factual rather than
+guessed — meb sells only e-books, SE-ED says which catalogue a product came from, Google Books
+reports EPUB/PDF availability, Open Library reports its ebook access, and Gutenberg and
+วิกิซอร์ซ are digital by definition.
+
+Classification is only as good as the categories the shops publish; a book filed under nothing
+useful gets no kind tag rather than a wrong one.
+
 ## Shop availability
 
 Opening a book shows where to get it. Those rows are not all equally certain, so the dialog

@@ -138,6 +138,7 @@ function mergeBooks(a, b) {
   out.sources = [...new Set([...(out.sources || []), ...(b.sources || [])])];
   out.languages = [...new Set([...(out.languages || []), ...(b.languages || [])])];
   out.shopLinks = { ...(b.shopLinks || {}), ...(out.shopLinks || {}) };
+  out.digital = out.digital || b.digital;
   out.freeLinks = dedupeLinks([...(out.freeLinks || []), ...(b.freeLinks || [])]);
   out.subjects = [...new Set([...(out.subjects || []), ...(b.subjects || [])])].slice(0, 8);
   return out;
@@ -217,6 +218,7 @@ async function searchGoogle({ field, term, lang }, signal) {
       buyLink: sale.buyLink || null,
       infoLink: v.canonicalVolumeLink || v.infoLink || null,
       languages: v.language ? [v.language] : [],
+      digital: !!(access.epub?.isAvailable || access.pdf?.isAvailable),
       sources: ['Google Books'],
       freeLinks,
     };
@@ -269,6 +271,7 @@ async function searchOpenLibrary({ field, term, lang }, signal) {
       buyLink: null,
       infoLink: olUrl,
       languages: d.language || [],
+      digital: d.ebook_access === 'public' || d.ebook_access === 'borrowable',
       sources: ['Open Library'],
       freeLinks,
     };
@@ -357,6 +360,7 @@ async function searchMeb({ field, term }, signal) {
       buyLink: href.startsWith('http') ? href : `https://www.mebmarket.com${href}`,
       infoLink: href.startsWith('http') ? href : `https://www.mebmarket.com${href}`,
       languages: ['tha'],
+      digital: true,
       sources: ['meb'],
       shopLinks: { meb: href.startsWith('http') ? href : `https://www.mebmarket.com${href}` },
       freeLinks: [],
@@ -398,6 +402,7 @@ function seedProduct(entry) {
     buyLink: url,
     infoLink: url,
     languages: ['tha'],
+    digital: kind === 'e-book-audio',
     sources: ['SE-ED'],
     shopLinks: { seed: url },
     freeLinks: [],
@@ -454,6 +459,7 @@ async function searchGutenberg({ field, term, lang }, signal) {
       buyLink: null,
       infoLink: `https://www.gutenberg.org/ebooks/${b.id}`,
       languages: b.languages || [],
+      digital: true,
       sources: ['Project Gutenberg'],
       freeLinks,
     };
@@ -500,6 +506,7 @@ async function searchThaiWikisource({ field, term }, signal) {
       buyLink: null,
       infoLink: pageUrl,
       languages: ['tha'],
+      digital: true,
       sources: ['วิกิซอร์ซ'],
       freeLinks: [{ label: 'วิกิซอร์ซ (อ่านเต็มเล่มฟรี)', url: pageUrl, kind: 'free read' }],
     });
@@ -517,6 +524,37 @@ const SOURCES = {
 };
 
 /* ------------------------------------------------------------ store links */
+
+/* ---------------------------------------------------------------- formats */
+
+/* Format is two things at once: what kind of book it is (นิยาย / การ์ตูน /
+   ไลท์โนเวล) and whether it is digital. A light novel can also be an e-book,
+   so a book carries a set of tags rather than one label, and the filter
+   matches any of them. */
+const FORMAT_LABELS = {
+  novel: 'นิยาย',
+  lightnovel: 'ไลท์โนเวล',
+  manga: 'การ์ตูน',
+  ebook: 'อีบุ๊ก',
+};
+
+// Checked in order; the most specific kind wins, so "graphic novel" is manga
+// and ไลท์โนเวล is not also counted as a plain นิยาย.
+const FORMAT_PATTERNS = [
+  ['lightnovel', /ไลท์โนเวล|ไลต์โนเวล|light\s*novel/i],
+  ['manga', /การ์ตูน|มังงะ|manga|comic|graphic novel|อนิเม/i],
+  ['novel', /นิยาย|วรรณกรรม|เรื่องสั้น|novel|fiction|literature/i],
+];
+
+function formatsOf(book) {
+  const hay = [book.title, book.publisher, ...(book.subjects || [])].join(' ');
+  const tags = [];
+  for (const [tag, pattern] of FORMAT_PATTERNS) {
+    if (pattern.test(hay)) { tags.push(tag); break; }
+  }
+  if (book.digital) tags.push('ebook');
+  return tags;
+}
 
 const THAI_SCRIPT = /[฀-๿]/;
 
@@ -729,6 +767,7 @@ function metaLine(book) {
 function cardHTML(book, mode) {
   const saved = inLibrary(book.id);
   const badges = [
+    ...formatsOf(book).map((f) => `<span class="badge format">${FORMAT_LABELS[f]}</span>`),
     book.translated ? '<span class="badge thai">แปลไทย</span>'
       : book.thai ? '<span class="badge thai">ไทย</span>' : '',
     book.free ? '<span class="badge free">ฟรี</span>' : '',
@@ -765,8 +804,15 @@ function cardHTML(book, mode) {
   </article>`;
 }
 
+const chosenFormats = () => $$('input[name="format"]:checked').map((i) => i.value);
+
 function renderResults() {
   let list = $('#free-only').checked ? results.filter((b) => b.free) : results;
+  // No format chosen means no opinion, so everything stays.
+  const wanted = chosenFormats();
+  if (wanted.length) {
+    list = list.filter((b) => formatsOf(b).some((f) => wanted.includes(f)));
+  }
   // In Thai scope, non-Thai hits still matter — a Thai edition may exist under
   // the same title — so they sink to the bottom rather than disappearing.
   if (searchLang() === 'th') list = [...list].sort((a, b) => Number(b.thai) - Number(a.thai));
@@ -779,7 +825,10 @@ function renderLibrary() {
 
   let list = library.filter((b) => activeStatus === 'all' || b.status === activeStatus);
   if (term) {
-    list = list.filter((b) => slug(`${b.title} ${(b.authors || []).join(' ')} ${b.note || ''}`).includes(term));
+    list = list.filter((b) => {
+      const formats = formatsOf(b).map((f) => FORMAT_LABELS[f]).join(' ');
+      return slug(`${b.title} ${(b.authors || []).join(' ')} ${b.note || ''} ${formats}`).includes(term);
+    });
   }
   if (sort === 'title') list = [...list].sort((a, b) => a.title.localeCompare(b.title));
   if (sort === 'author') {
@@ -836,6 +885,7 @@ function openDialog(id) {
         ${metaLine(book) ? `<p class="card-meta">${esc(metaLine(book))}</p>` : ''}
         ${book.isbn13 || book.isbn10 ? `<p class="card-meta">ISBN ${esc(book.isbn13 || book.isbn10)}</p>` : ''}
         <div class="badges">
+          ${formatsOf(book).map((f) => `<span class="badge format">${FORMAT_LABELS[f]}</span>`).join('')}
           ${isTranslated(book) ? '<span class="badge thai">แปลไทย</span>'
             : isThai(book) ? '<span class="badge thai">ภาษาไทย</span>' : ''}
           ${free.length ? '<span class="badge free">มีให้ฟรี</span>' : ''}
@@ -1042,6 +1092,7 @@ $$('input[name="lang"]').forEach((radio) => radio.addEventListener('change', () 
 }));
 
 $('#free-only').addEventListener('change', renderResults);
+$$('input[name="format"]').forEach((box) => box.addEventListener('change', renderResults));
 $('#library-filter').addEventListener('input', renderLibrary);
 $('#library-sort').addEventListener('change', renderLibrary);
 $('#export-btn').addEventListener('click', exportLibrary);

@@ -473,6 +473,12 @@ main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
 .badge.free { background: var(--free-soft); color: var(--free); }
 .badge.thai { background: var(--thai-soft); color: var(--thai); }
 .badge.status { background: var(--accent-soft); color: var(--accent); }
+.badge.format {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  padding: 1.5px 7px;
+}
 
 .card-actions {
   border-top: 1px solid var(--line);
