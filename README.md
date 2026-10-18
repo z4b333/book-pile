@@ -27,7 +27,7 @@ detects the helper is missing and routes shop requests through a public reader i
 
 | Source | What it adds | Key needed |
 | --- | --- | --- |
-| **meb** (mebmarket.com) | Thailand's largest e-book shop — cover, title, author, ISBN, category, price, direct product link. **Needs `node server.js`** (see below) | No |
+| **meb** (mebmarket.com) | Thailand's largest e-book shop — cover, title, author, ISBN, category, price, direct product link | No |
 | **SE-ED** (se-ed.com) | The shop's own search API — cover, title, price, year, and an ISBN in the SKU | No |
 | **Kinokuniya ไทย** (kinokuniya.co.th) | Shopify predictive search — English and imported titles, cover, price, publisher, ISBN | No |
 | [Google Books](https://developers.google.com/books) | Thai e-books (SE-ED, Amarin and others publish here), descriptions, prices, buy links. `langRestrict=th` in Thai scope | No |
@@ -50,10 +50,11 @@ a plain GET. That works through either proxy — the local helper (~400ms) or th
 (~1.3s) — and returns identical bytes, so one parser covers both. SE-ED works everywhere,
 including GitHub Pages.
 
-**meb** is different. Its pages are built by script, so there is nothing in the HTML to scrape,
-and its search endpoint (`ajax.php`) is **POST-only**. The public reader can only issue GETs,
-so **meb only works when `server.js` is running**. When it is not, the meb source is disabled
-in the UI with a note, rather than quietly returning nothing.
+**meb** has no HTML worth scraping — its pages are built by script — so it calls the same
+`ajax.php` endpoint the site uses. The site POSTs to it, which would have tied meb to the local
+helper, since no public proxy will forward a POST. It turns out `ajax.php` reads its parameters
+from the query string too, so it can be fetched as a GET and works through the reader like
+everything else. **Nothing needs to be installed.**
 
 The meb payload is fussy and was taken from the site's own request: `sort` must be
 `{by, type}` (not `sort_by`), and empty fields must be omitted rather than sent as `""` — it
@@ -79,7 +80,7 @@ Not every shop can be a search source. What each one allows:
 | --- | --- | --- |
 | **SE-ED** | Yes, anywhere | Its own JSON search API, a plain GET |
 | **Kinokuniya ไทย** | Yes, anywhere | Shopify predictive search (`/search/suggest.json`); the product handle is the ISBN |
-| **meb** | Only with `node server.js` | Its endpoint is POST-only and no public proxy will POST |
+| **meb** | Yes, anywhere | Its own `ajax.php`, which reads parameters from the query string as well as a POST body |
 | **Naiin** | **No** | `/search` answers `403` from Cloudflare to any automated request |
 | **B2S** | Not yet | Has a REST API, but the query travels in a POST body that has not been worked out |
 | **Chulabook**, **วัชรญาณ** | Not investigated | Link-only for now |
@@ -234,8 +235,8 @@ except the book APIs above. Clearing site data clears the library — use **Expo
 
 The app is static, so Pages serves it as-is. `server.js` is not uploaded-and-run by Pages —
 Pages only serves files — so the shop lookups fall back to the public reader automatically.
-SE-ED, Google Books, Open Library and วิกิซอร์ซ all work there. **meb does not** — its endpoint
-is POST-only and needs the helper, so the page disables that source and says so.
+Every source works there, meb included. Measured on a plain static server with no helper
+running: meb 3.4s, SE-ED 1.2s, Kinokuniya 2.2s, and 4.3s for all three in parallel.
 
 ```bash
 git remote add origin https://github.com/<user>/<repo>.git
@@ -261,8 +262,6 @@ Notes:
 
 ## Known gaps
 
-- **meb needs the local helper.** On GitHub Pages the meb source is switched off and the chip
-  is greyed out. Everything else — SE-ED, Google Books, Open Library, วิกิซอร์ซ — works there.
 - **Naiin** is link-only: its search is Cloudflare-protected (`403`), so it cannot be a result
   source. Its product pages do load, but that does not help you find a book you cannot search for.
 - **B2S** has a usable-looking REST API whose query is in a POST body; adding it would be the

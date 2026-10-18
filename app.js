@@ -379,12 +379,12 @@ async function proxyText(target, { format = 'text', needsJs = false } = {}, sign
 }
 
 /* meb — Thailand's largest e-book shop. Its pages are built by script, so
-   there is nothing to scrape from the HTML; instead this calls the same
-   private endpoint the site itself uses. That endpoint is POST-only, and the
-   public reader can only issue GETs, so meb needs the local helper running.
-   Payload shape was taken from the site's own request: the sort object is
-   {by, type} and empty fields are omitted, both of which it rejects if
-   wrong. */
+   there is nothing to scrape from the HTML; this calls the same endpoint the
+   site itself uses. The site POSTs to it, but ajax.php reads its parameters
+   from the query string too, so it can be fetched as a GET — which means it
+   works through the public reader, with no local helper and nothing to
+   install. The payload shape came from the site's own request: sort is
+   {by, type}, and empty fields are omitted rather than sent as "". */
 const MEB_API = 'https://www.mebmarket.com/ajax.php';
 
 /** meb returns HTML-encoded text ("&ldquo;" and friends) even over its API. */
@@ -396,29 +396,20 @@ function decodeEntities(str) {
 }
 
 async function searchMeb({ term }, signal) {
-  if (!await probeLocalProxy()) {
-    throw Object.assign(new Error('needs the local helper'), { code: 'needs-local' });
-  }
-
   const payload = {
     token: '', filter: { type: 'all', value: term }, sort: { by: 'date', type: 'desc' },
     exact_keyword: '', price: 'all', series_id: '', bundle_type: '',
     result_per_page: 40, page_no: 1, app_id: 'ASK', app_platform: 'WEB',
     content_type_list: null, debug_elastic: 1, category_group_id: '',
   };
-  const res = await fetch(`${LOCAL_PROXY}?url=${encodeURIComponent(MEB_API)}`, {
-    method: 'POST',
-    signal: timedSignal(signal),
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      api: 'Store', method: 'userSearchBooks2', data: JSON.stringify(payload),
-    }),
+  const query = new URLSearchParams({
+    api: 'Store', method: 'userSearchBooks2', data: JSON.stringify(payload),
   });
-  if (!res.ok) throw Object.assign(new Error(`${res.status}`), { code: 'http' });
 
+  const body = await proxyText(`${MEB_API}?${query}`, { format: 'text' }, signal);
   let data;
   try {
-    data = JSON.parse(await res.text());
+    data = JSON.parse(body);
   } catch {
     throw Object.assign(new Error('bad payload'), { code: 'http' });
   }
@@ -788,7 +779,6 @@ const FAIL_REASON = {
   timeout: 'ตอบช้าเกินไป',
   offline: 'เชื่อมต่อไม่ได้',
   http: 'ตอบกลับผิดพลาด',
-  'needs-local': 'ต้องรัน node server.js',
 };
 
 /** Each source is fetched independently and rendered the moment it lands,
@@ -1269,18 +1259,6 @@ document.addEventListener('keydown', (e) => {
 
 buildSwatches();
 
-/* meb can only be reached through the local helper, so say so up front
-   instead of letting every search report a failure. */
-probeLocalProxy().then((up) => {
-  if (up) return;
-  const box = $('input[name="source"][value="meb"]');
-  if (!box) return;
-  box.checked = false;
-  box.disabled = true;
-  const chip = box.closest('.chip');
-  chip.classList.add('chip-off');
-  chip.title = 'meb ต้องรัน node server.js ในเครื่อง — ร้านนี้ไม่มี API แบบ GET';
-});
 
 function showView(name) {
   $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${name}`));

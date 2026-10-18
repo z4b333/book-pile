@@ -1,7 +1,7 @@
 /* Optional local helper for กองดอง (Book Pile).
    Serves the static files and proxies the Thai bookshops that send no CORS
-   headers. The app works without this — it falls back to a public reader
-   service — but this is faster and has no rate limit.
+   headers. Nothing here is required: the app falls back to a public reader
+   when this is not running, so it is purely a speed-up for local use.
 
    Run:  node server.js        then open http://localhost:5500
 */
@@ -33,20 +33,6 @@ const TYPES = {
 const isAllowed = (host) =>
   ALLOWED_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
 
-function readBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    let size = 0;
-    req.on('data', (c) => {
-      size += c.length;
-      if (size > 1e6) { reject(new Error('body too large')); req.destroy(); return; }
-      chunks.push(c);
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
-  });
-}
-
 async function proxy(req, res, target) {
   let url;
   try {
@@ -58,24 +44,11 @@ async function proxy(req, res, target) {
     return send(res, 403, 'text/plain', `Host not allowed: ${url.hostname}`);
   }
 
-  // Some shops only expose search over POST, so the body is forwarded as sent.
-  let body;
-  if (req.method === 'POST') {
-    try {
-      body = await readBody(req);
-    } catch {
-      return send(res, 413, 'text/plain', 'Body too large');
-    }
-  }
-
   const upstream = AbortSignal.timeout(15000);
   try {
     const r = await fetch(url, {
       signal: upstream,
-      method: req.method === 'POST' ? 'POST' : 'GET',
-      body,
       headers: {
-        ...(body ? { 'Content-Type': req.headers['content-type'] || 'application/x-www-form-urlencoded' } : {}),
         // Thai shops serve a stripped page to clients that look like bots.
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
           + ' (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -94,8 +67,6 @@ function send(res, status, type, body) {
   res.writeHead(status, {
     'Content-Type': type,
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'content-type',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Cache-Control': 'no-store',
   });
   res.end(body);
@@ -118,7 +89,6 @@ async function serveStatic(res, pathname) {
 http.createServer(async (req, res) => {
   const { pathname, searchParams } = new URL(req.url, `http://localhost:${PORT}`);
 
-  if (req.method === 'OPTIONS') return send(res, 204, 'text/plain', '');
   if (pathname === '/proxy/ping') return send(res, 200, 'text/plain', 'ok');
   if (pathname === '/proxy') {
     const target = searchParams.get('url');
