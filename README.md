@@ -118,7 +118,7 @@ The interface is in Thai. Two controls sit in the top right:
 - **Theme** — light / dark, overriding the system preference. Click cycles between them.
 - **Accent** — eight hues (ส้มอิฐ, ชาด, ชมพู, บานเย็น, ม่วง, คราม, ฟ้า, เขียว).
 
-Both persist in `localStorage` under `kongdong/prefs` and are applied before first paint, so
+Both persist in `localStorage` under `bookpile/prefs` and are applied before first paint, so
 there is no flash of the wrong colour on reload.
 
 Colour is built on a single custom property. `--accent-h` is a hue, and every accent shade —
@@ -132,7 +132,7 @@ Safari 16.4+, Firefox 113+).
 
 ## Where the data lives
 
-In `localStorage` under the key `kongdong/v1`, in your browser only. Nothing is sent anywhere
+In `localStorage` under the key `bookpile/v1`, in your browser only. Nothing is sent anywhere
 except the book APIs above. Clearing site data clears the library — use **Export** first.
 
 ## Deploying to GitHub Pages

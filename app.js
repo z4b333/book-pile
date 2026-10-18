@@ -1,9 +1,31 @@
 /* กองดอง (Book Pile) — Thai book search + save-for-later library.
    No build step, no backend. Data lives in localStorage. */
 
-const STORAGE_KEY = 'kongdong/v1';
-const LEGACY_KEY = 'shelf-later/v1';
-const PREFS_KEY = 'kongdong/prefs';
+const STORAGE_KEY = 'bookpile/v1';
+const PREFS_KEY = 'bookpile/prefs';
+
+/* Keys this app stored under before it was renamed, newest first. Whatever is
+   found under an old name is adopted and the old name cleared, so renaming
+   the app never costs anyone their pile. */
+const LEGACY_KEYS = {
+  [STORAGE_KEY]: ['kongdong/v1', 'shelf-later/v1'],
+  [PREFS_KEY]: ['kongdong/prefs'],
+};
+
+function readStored(key) {
+  try {
+    const current = localStorage.getItem(key);
+    if (current !== null) return current;
+    for (const old of LEGACY_KEYS[key] || []) {
+      const value = localStorage.getItem(old);
+      if (value === null) continue;
+      localStorage.setItem(key, value);
+      localStorage.removeItem(old);
+      return value;
+    }
+  } catch { /* storage unavailable — fall through to the default */ }
+  return null;
+}
 const STATUSES = {
   buy: 'รอซื้อ',
   download: 'รอโหลด',
@@ -27,7 +49,7 @@ const ACCENTS = [
 
 const prefs = (() => {
   try {
-    return { accent: 45, theme: 'auto', ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') };
+    return { accent: 45, theme: 'auto', ...JSON.parse(readStored(PREFS_KEY) || '{}') };
   } catch {
     return { accent: 45, theme: 'auto' };
   }
@@ -54,15 +76,8 @@ let activeStatus = 'all';
 
 function load() {
   try {
-    // Carry over anything saved under the app's former name.
-    const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(parsed)) return [];
-    if (parsed.length && !localStorage.getItem(STORAGE_KEY)) {
-      localStorage.setItem(STORAGE_KEY, raw);
-      localStorage.removeItem(LEGACY_KEY);
-    }
-    return parsed;
+    const parsed = JSON.parse(readStored(STORAGE_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
@@ -919,7 +934,7 @@ async function verifyShops(book) {
 
 function exportLibrary() {
   if (!library.length) return toast('ยังไม่มีอะไรให้ส่งออก');
-  const blob = new Blob([JSON.stringify({ app: 'kongdong', version: 1, books: library }, null, 2)],
+  const blob = new Blob([JSON.stringify({ app: 'bookpile', version: 1, books: library }, null, 2)],
     { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
