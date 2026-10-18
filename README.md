@@ -30,7 +30,6 @@ detects the helper is missing and routes shop requests through a public reader i
 | **meb** (mebmarket.com) | Thailand's largest e-book shop — cover, title, author, ISBN, category, price, direct product link | No |
 | **SE-ED** (se-ed.com) | The shop's own search API — cover, title, price, year, and an ISBN in the SKU | No |
 | **Kinokuniya ไทย** (kinokuniya.co.th) | Shopify predictive search — English and imported titles, cover, price, publisher, ISBN | No |
-| [Google Books](https://developers.google.com/books) | Thai e-books (SE-ED, Amarin and others publish here), descriptions, prices, buy links. `langRestrict=th` in Thai scope | No |
 | [Open Library](https://openlibrary.org/developers/api) | Covers, ISBNs, borrow/read-free status. `language=tha` in Thai scope | No |
 | [วิกิซอร์ซ / Thai Wikisource](https://th.wikisource.org) | Public-domain Thai literature — Sunthorn Phu, royal chronicles, old law codes — free in full | No |
 | [Project Gutenberg](https://gutendex.com) via Gutendex | Public-domain works, mostly English (off by default) | No |
@@ -115,8 +114,8 @@ as knowing a shop lacks the book, and greying them out would be a guess presente
 
 ### Thai focus
 
-**Language scope** defaults to **ไทย Thai only**, which filters Google Books and Open Library
-to Thai and switches วิกิซอร์ซ on. Non-Thai hits are not hidden — they sink below the Thai ones,
+**Language scope** defaults to **ไทย Thai only**, which filters Open Library to Thai and
+switches วิกิซอร์ซ on. Non-Thai hits are not hidden — they sink below the Thai ones,
 because the Thai edition of an English book is often what you are actually after.
 
 **Thai books are badged** ไทย, or **แปลไทย** when the book is in Thai but the author's name is in
@@ -160,10 +159,9 @@ tags are mutually exclusive and resolved most-specific-first, so a graphic novel
 never also นิยาย, and ไลท์โนเวล is never doubled up as นิยาย.
 
 Detection reads each source's own category data plus the title: meb and SE-ED category names,
-Google Books categories, Open Library subjects. `อีบุ๊ก` is separate and factual rather than
-guessed — meb sells only e-books, SE-ED says which catalogue a product came from, Google Books
-reports EPUB/PDF availability, Open Library reports its ebook access, and Gutenberg and
-วิกิซอร์ซ are digital by definition.
+Kinokuniya tags, Open Library subjects. `อีบุ๊ก` is separate and factual rather than guessed —
+meb sells only e-books, SE-ED says which catalogue a product came from, Open Library reports its
+ebook access, and Gutenberg and วิกิซอร์ซ are digital by definition.
 
 Classification is only as good as the categories the shops publish; a book filed under nothing
 useful gets no kind tag rather than a wrong one.
@@ -280,8 +278,13 @@ Notes:
 - Open Library often returns the **English work record** for a translated book, so a Thai
   translation may show its English title. The Thai shop links still search that title, which
   usually finds the Thai edition.
-- Google Books may answer `429` from shared or datacenter IPs. Adding an API key to the URL in
-  `app.js` raises the limit.
+- **No book descriptions or page counts.** Google Books was the only source that carried them
+  and it has been removed; Open Library's search fields do not include a description. Re-adding
+  Google Books is a small change if you miss them.
+- **Amazon cannot be a search source.** Its Product Advertising API needs an Associates account
+  and keys, scraping its search pages means defeating bot protection, and the public reader
+  blocks `amazon.com` outright (`AbuseAlleviationError`). It stays a link — now to both the US
+  store and **Amazon SG**, which ships to Thailand.
 
 ## Possible next steps
 

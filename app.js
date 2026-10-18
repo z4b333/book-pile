@@ -172,59 +172,6 @@ async function getJSON(url, signal) {
   return res.json();
 }
 
-/* --------------------------------------------------------- source: Google */
-
-function googleQuery(field, term) {
-  if (field === 'title') return `intitle:${term}`;
-  if (field === 'author') return `inauthor:${term}`;
-  if (field === 'isbn') return `isbn:${term.replace(/[^0-9Xx]/g, '')}`;
-  return term;
-}
-
-async function searchGoogle({ field, term, lang }, signal) {
-  const url = 'https://www.googleapis.com/books/v1/volumes?maxResults=20'
-    + (lang === 'th' ? '&langRestrict=th' : '')
-    + '&q=' + encodeURIComponent(googleQuery(field, term));
-  const data = await getJSON(url, signal);
-  return (data.items || []).map((item) => {
-    const v = item.volumeInfo || {};
-    const sale = item.saleInfo || {};
-    const access = item.accessInfo || {};
-    const ids = Object.fromEntries((v.industryIdentifiers || []).map((i) => [i.type, i.identifier]));
-    const freeLinks = [];
-
-    if (access.epub?.isAvailable && access.epub.downloadLink) {
-      freeLinks.push({ label: 'Google Books (EPUB)', url: access.epub.downloadLink, kind: 'free download' });
-    }
-    if (access.pdf?.isAvailable && access.pdf.downloadLink) {
-      freeLinks.push({ label: 'Google Books (PDF)', url: access.pdf.downloadLink, kind: 'free download' });
-    }
-    if (sale.saleability === 'FREE' && v.canonicalVolumeLink) {
-      freeLinks.push({ label: 'Google Books (free)', url: v.canonicalVolumeLink, kind: 'free' });
-    }
-
-    return {
-      title: v.title + (v.subtitle ? `: ${v.subtitle}` : ''),
-      authors: v.authors || [],
-      year: (v.publishedDate || '').slice(0, 4) || null,
-      publisher: v.publisher || null,
-      pages: v.pageCount || null,
-      description: v.description || null,
-      cover: (v.imageLinks?.thumbnail || v.imageLinks?.smallThumbnail || '').replace(/^http:/, 'https:') || null,
-      isbn13: ids.ISBN_13 || null,
-      isbn10: ids.ISBN_10 || null,
-      subjects: v.categories || [],
-      price: sale.listPrice ? `${sale.listPrice.amount} ${sale.listPrice.currencyCode}` : null,
-      buyLink: sale.buyLink || null,
-      infoLink: v.canonicalVolumeLink || v.infoLink || null,
-      languages: v.language ? [v.language] : [],
-      digital: !!(access.epub?.isAvailable || access.pdf?.isAvailable),
-      sources: ['Google Books'],
-      freeLinks,
-    };
-  });
-}
-
 /* --------------------------------------------------- source: Open Library */
 
 async function searchOpenLibrary({ field, term, lang }, signal) {
@@ -495,8 +442,8 @@ async function searchKinokuniya({ field, term }, signal) {
 }
 
 /** SE-ED — the shop's own search API, the same one its website calls. Returns
-    covers, prices and an ISBN in the SKU, so these merge with Google Books and
-    Open Library records instead of showing up twice. */
+    covers, prices and an ISBN in the SKU, so these merge with the other
+    sources instead of showing up twice. */
 const SEED_PRICE_UNIT = 1e6; // the API quotes satang-millionths, 500000000 = ฿500
 
 function seedProduct(entry) {
@@ -646,7 +593,6 @@ const SOURCES = {
   meb: { name: 'meb', run: searchMeb },
   seed: { name: 'SE-ED', run: searchSeed },
   kino: { name: 'Kinokuniya', run: searchKinokuniya },
-  google: { name: 'Google Books', run: searchGoogle },
   openlibrary: { name: 'Open Library', run: searchOpenLibrary },
   wikisource: { name: 'วิกิซอร์ซ', run: searchThaiWikisource },
   gutenberg: { name: 'Project Gutenberg', run: searchGutenberg },
@@ -751,8 +697,8 @@ function storeLinks(book) {
       { shop: 'kino', label: 'Kinokuniya ไทย', url: `https://kinokuniya.co.th/search?q=${q}`, kind: 'นำเข้า' },
     ], book));
   }
-  if (book.buyLink) links.push({ label: 'Google Play Books', url: book.buyLink, kind: book.price || 'buy' });
   links.push({ label: 'Amazon', url: isbn ? `https://www.amazon.com/s?k=${isbn}` : `https://www.amazon.com/s?k=${q}&i=stripbooks`, kind: 'buy' });
+  links.push({ label: 'Amazon SG', url: isbn ? `https://www.amazon.sg/s?k=${isbn}` : `https://www.amazon.sg/s?k=${q}&i=stripbooks`, kind: 'ส่งไทย' });
   links.push({ label: 'Bookshop.org', url: isbn ? `https://bookshop.org/search?keywords=${isbn}` : `https://bookshop.org/search?keywords=${q}`, kind: 'indie' });
   links.push({ label: 'Barnes & Noble', url: `https://www.barnesandnoble.com/s/${q}`, kind: 'buy' });
   links.push({ label: 'Kobo', url: `https://www.kobo.com/search?query=${isbn || q}`, kind: 'ebook' });
