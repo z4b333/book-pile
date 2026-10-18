@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>กองดอง · Book Pile</title>
+  <meta name="description" content="ค้นหาหนังสือไทย เก็บเข้ากองดอง ไว้ซื้อหรือโหลดทีหลัง — search Thai books and pile them up for later">
+  <meta name="theme-color" content="#f7f5f1">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#search" data-view="search">
+        <span class="brand-mark">📚</span>
+        <span class="brand-th">กองดอง</span>
+        <span class="brand-en">Book Pile</span>
+      </a>
+
+      <nav class="tabs" aria-label="Main">
+        <button class="tab active" data-view="search">ค้นหา</button>
+        <button class="tab" data-view="library">กองของฉัน <span id="lib-count" class="count">0</span></button>
+      </nav>
+
+      <div class="appearance">
+        <button id="theme-btn" class="icon-btn" type="button" aria-label="สลับโหมดสว่าง/มืด" title="สลับโหมดสว่าง/มืด">
+          <span class="theme-icon"></span>
+        </button>
+        <div class="accent-wrap">
+          <button id="accent-btn" class="icon-btn swatch-btn" type="button"
+                  aria-label="เปลี่ยนสีหลัก" title="เปลี่ยนสีหลัก" aria-expanded="false"></button>
+          <div id="accent-menu" class="accent-menu" role="menu" hidden>
+            <p class="accent-title">สีหลัก <span>Accent</span></p>
+            <div id="accent-swatches" class="swatches"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Search -->
+    <section id="view-search" class="view active" aria-label="ค้นหาหนังสือ">
+      <form id="search-form" class="search-bar" role="search">
+        <select id="search-field" aria-label="ค้นหาจาก">
+          <option value="all">ทั้งหมด</option>
+          <option value="title">ชื่อเรื่อง</option>
+          <option value="author">ผู้แต่ง</option>
+          <option value="isbn">ISBN</option>
+        </select>
+        <input id="search-input" type="search" placeholder="ค้นหาชื่อหนังสือ ผู้แต่ง หรือ ISBN…" autocomplete="off" required>
+        <button type="submit" class="btn primary">ค้นหา</button>
+      </form>
+
+      <div class="options">
+        <div class="option-row">
+          <span class="option-label">ภาษา</span>
+          <div class="segmented">
+            <label><input type="radio" name="lang" value="th" checked><span>ไทย</span></label>
+            <label><input type="radio" name="lang" value="any"><span>ทุกภาษา</span></label>
+          </div>
+        </div>
+
+        <div class="option-row">
+          <span class="option-label">แหล่ง</span>
+          <label class="chip"><input type="checkbox" name="source" value="meb" checked><span>meb</span></label>
+          <label class="chip"><input type="checkbox" name="source" value="seed" checked><span>SE-ED</span></label>
+          <label class="chip"><input type="checkbox" name="source" value="google" checked><span>Google Books</span></label>
+          <label class="chip"><input type="checkbox" name="source" value="openlibrary" checked><span>Open Library</span></label>
+          <label class="chip"><input type="checkbox" name="source" value="wikisource" checked><span>วิกิซอร์ซ</span></label>
+          <label class="chip"><input type="checkbox" name="source" value="gutenberg"><span>Gutenberg</span></label>
+          <label class="chip free-chip"><input type="checkbox" id="free-only"><span>เฉพาะที่โหลดฟรี</span></label>
+        </div>
+      </div>
+
+      <div id="search-status" class="status" aria-live="polite"></div>
+
+      <div id="search-intro" class="intro">
+        <h1>หาหนังสือ<br>เก็บไว้ซื้อทีหลัง</h1>
+        <p>ค้นหาร้านหนังสือไทย ร้านอีบุ๊ก และห้องสมุดฟรี ได้ในที่เดียว
+           แล้วเก็บเข้ากองดองไว้ พร้อมลิงก์ไปทุกร้านที่มีเล่มนั้น</p>
+        <div class="suggestions">
+          <span>ลองค้นหา</span>
+          <button class="chip ghost-chip" data-suggest="แฮร์รี่ พอตเตอร์">แฮร์รี่ พอตเตอร์</button>
+          <button class="chip ghost-chip" data-suggest="พระอภัยมณี">พระอภัยมณี</button>
+          <button class="chip ghost-chip" data-suggest="สี่แผ่นดิน">สี่แผ่นดิน</button>
+          <button class="chip ghost-chip" data-suggest="ฮารูกิ มูราคามิ">ฮารูกิ มูราคามิ</button>
+          <button class="chip ghost-chip" data-suggest="Atomic Habits">Atomic Habits</button>
+        </div>
+      </div>
+
+      <div id="results" class="grid"></div>
+    </section>
+
+    <!-- Library -->
+    <section id="view-library" class="view" aria-label="กองดองของฉัน">
+      <div class="library-toolbar">
+        <div class="filters" id="status-filters" role="group" aria-label="กรองตามสถานะ">
+          <button class="filter active" data-status="all">ทั้งหมด <span></span></button>
+          <button class="filter" data-status="buy">รอซื้อ <span></span></button>
+          <button class="filter" data-status="download">รอโหลด <span></span></button>
+          <button class="filter" data-status="have">ได้แล้ว <span></span></button>
+        </div>
+        <div class="library-controls">
+          <input id="library-filter" type="search" placeholder="กรองในกองดอง…" aria-label="กรองในกองดอง">
+          <select id="library-sort" aria-label="เรียงตาม">
+            <option value="recent">เพิ่งเก็บ</option>
+            <option value="title">ชื่อ ก–ฮ</option>
+            <option value="author">ผู้แต่ง ก–ฮ</option>
+          </select>
+          <button id="export-btn" class="btn" type="button">ส่งออก</button>
+          <label class="btn" tabindex="0">นำเข้า<input type="file" id="import-input" accept="application/json,.json" hidden></label>
+        </div>
+      </div>
+      <div id="library-empty" class="empty" hidden></div>
+      <div id="library" class="grid"></div>
+    </section>
+  </main>
+
+  <dialog id="book-dialog" aria-label="รายละเอียดหนังสือ">
+    <div id="dialog-body" class="dialog-inner"></div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

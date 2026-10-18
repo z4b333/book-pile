@@ -1,0 +1,1009 @@
+/* กองดอง (Book Pile) — Thai book search + save-for-later library.
+   No build step, no backend. Data lives in localStorage. */
+
+const STORAGE_KEY = 'kongdong/v1';
+const LEGACY_KEY = 'shelf-later/v1';
+const PREFS_KEY = 'kongdong/prefs';
+const STATUSES = {
+  buy: 'รอซื้อ',
+  download: 'รอโหลด',
+  have: 'ได้แล้ว',
+};
+
+/* ------------------------------------------------------------ appearance */
+
+/* One hue drives every accent shade (see styles.css), so a theme is just a
+   number plus light/dark. Both are applied before first paint. */
+const ACCENTS = [
+  { name: 'ส้มอิฐ', h: 45 },
+  { name: 'ชาด', h: 28 },
+  { name: 'ชมพู', h: 355 },
+  { name: 'บานเย็น', h: 330 },
+  { name: 'ม่วง', h: 295 },
+  { name: 'คราม', h: 265 },
+  { name: 'ฟ้า', h: 230 },
+  { name: 'เขียว', h: 160 },
+];
+
+const prefs = (() => {
+  try {
+    return { accent: 45, theme: 'auto', ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') };
+  } catch {
+    return { accent: 45, theme: 'auto' };
+  }
+})();
+
+function applyPrefs() {
+  const root = document.documentElement;
+  root.style.setProperty('--accent-h', prefs.accent);
+  if (prefs.theme === 'auto') root.removeAttribute('data-theme');
+  else root.setAttribute('data-theme', prefs.theme);
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  } catch { /* private mode — the look just resets next visit */ }
+}
+
+applyPrefs();
+
+/* ------------------------------------------------------------------ state */
+
+let library = load();
+let results = [];
+let searchSeq = 0;
+let activeStatus = 'all';
+
+function load() {
+  try {
+    // Carry over anything saved under the app's former name.
+    const raw = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    if (parsed.length && !localStorage.getItem(STORAGE_KEY)) {
+      localStorage.setItem(STORAGE_KEY, raw);
+      localStorage.removeItem(LEGACY_KEY);
+    }
+    return parsed;
+  } catch {
+    return [];
+  }
+}
+
+function save() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(library));
+  } catch {
+    toast('บันทึกไม่ได้ — เบราว์เซอร์ไม่ให้เก็บข้อมูล');
+  }
+}
+
+/* ------------------------------------------------------------------ utils */
+
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => [...document.querySelectorAll(sel)];
+
+function esc(str) {
+  return String(str ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+let toastTimer;
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
+}
+
+/** Lowercase and strip punctuation, but keep Thai script — stripping it would
+    reduce every Thai title to an empty string, collapsing unrelated books
+    onto one fingerprint and breaking library search. */
+function slug(str) {
+  return String(str ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9฀-๿]+/g, ' ')
+    .trim();
+}
+
+/** Stable identity so the same book from two sources collapses into one row. */
+function fingerprint(book) {
+  if (book.isbn13) return `isbn:${book.isbn13}`;
+  if (book.isbn10) return `isbn:${book.isbn10}`;
+  const author = slug((book.authors || [])[0] || '').split(' ').slice(-1)[0];
+  return `t:${slug(book.title).slice(0, 60)}|a:${author}`;
+}
+
+function mergeBooks(a, b) {
+  const out = { ...a };
+  for (const key of ['cover', 'description', 'publisher', 'year', 'pages', 'isbn13', 'isbn10']) {
+    if (!out[key] && b[key]) out[key] = b[key];
+  }
+  if ((b.authors || []).length > (out.authors || []).length) out.authors = b.authors;
+  out.sources = [...new Set([...(out.sources || []), ...(b.sources || [])])];
+  out.languages = [...new Set([...(out.languages || []), ...(b.languages || [])])];
+  out.freeLinks = dedupeLinks([...(out.freeLinks || []), ...(b.freeLinks || [])]);
+  out.subjects = [...new Set([...(out.subjects || []), ...(b.subjects || [])])].slice(0, 8);
+  return out;
+}
+
+function dedupeLinks(links) {
+  const seen = new Set();
+  return links.filter((l) => !seen.has(l.url) && seen.add(l.url));
+}
+
+/* ------------------------------------------------------------------ fetch */
+
+const SOURCE_TIMEOUT = 12000;
+
+/** Abort on either the user's next search or this source taking too long. */
+function timedSignal(signal) {
+  const limit = AbortSignal.timeout(SOURCE_TIMEOUT);
+  return AbortSignal.any ? AbortSignal.any([signal, limit]) : signal;
+}
+
+async function getJSON(url, signal) {
+  let res;
+  try {
+    res = await fetch(url, { signal: timedSignal(signal), headers: { Accept: 'application/json' } });
+  } catch (err) {
+    if (signal.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+    throw Object.assign(new Error('unreachable'), { code: err.name === 'TimeoutError' ? 'timeout' : 'offline' });
+  }
+  if (res.status === 429) throw Object.assign(new Error('rate limited'), { code: 'rate-limit' });
+  if (!res.ok) throw Object.assign(new Error(`${res.status}`), { code: 'http' });
+  return res.json();
+}
+
+/* --------------------------------------------------------- source: Google */
+
+function googleQuery(field, term) {
+  if (field === 'title') return `intitle:${term}`;
+  if (field === 'author') return `inauthor:${term}`;
+  if (field === 'isbn') return `isbn:${term.replace(/[^0-9Xx]/g, '')}`;
+  return term;
+}
+
+async function searchGoogle({ field, term, lang }, signal) {
+  const url = 'https://www.googleapis.com/books/v1/volumes?maxResults=20'
+    + (lang === 'th' ? '&langRestrict=th' : '')
+    + '&q=' + encodeURIComponent(googleQuery(field, term));
+  const data = await getJSON(url, signal);
+  return (data.items || []).map((item) => {
+    const v = item.volumeInfo || {};
+    const sale = item.saleInfo || {};
+    const access = item.accessInfo || {};
+    const ids = Object.fromEntries((v.industryIdentifiers || []).map((i) => [i.type, i.identifier]));
+    const freeLinks = [];
+
+    if (access.epub?.isAvailable && access.epub.downloadLink) {
+      freeLinks.push({ label: 'Google Books (EPUB)', url: access.epub.downloadLink, kind: 'free download' });
+    }
+    if (access.pdf?.isAvailable && access.pdf.downloadLink) {
+      freeLinks.push({ label: 'Google Books (PDF)', url: access.pdf.downloadLink, kind: 'free download' });
+    }
+    if (sale.saleability === 'FREE' && v.canonicalVolumeLink) {
+      freeLinks.push({ label: 'Google Books (free)', url: v.canonicalVolumeLink, kind: 'free' });
+    }
+
+    return {
+      title: v.title + (v.subtitle ? `: ${v.subtitle}` : ''),
+      authors: v.authors || [],
+      year: (v.publishedDate || '').slice(0, 4) || null,
+      publisher: v.publisher || null,
+      pages: v.pageCount || null,
+      description: v.description || null,
+      cover: (v.imageLinks?.thumbnail || v.imageLinks?.smallThumbnail || '').replace(/^http:/, 'https:') || null,
+      isbn13: ids.ISBN_13 || null,
+      isbn10: ids.ISBN_10 || null,
+      subjects: v.categories || [],
+      price: sale.listPrice ? `${sale.listPrice.amount} ${sale.listPrice.currencyCode}` : null,
+      buyLink: sale.buyLink || null,
+      infoLink: v.canonicalVolumeLink || v.infoLink || null,
+      languages: v.language ? [v.language] : [],
+      sources: ['Google Books'],
+      freeLinks,
+    };
+  });
+}
+
+/* --------------------------------------------------- source: Open Library */
+
+async function searchOpenLibrary({ field, term, lang }, signal) {
+  const params = new URLSearchParams({ limit: '20' });
+  const key = { title: 'title', author: 'author', isbn: 'isbn' }[field] || 'q';
+  params.set(key, field === 'isbn' ? term.replace(/[^0-9Xx]/g, '') : term);
+  // Open Library's language filter drops real Thai books — many work records
+  // carry no Thai language tag at all ("สี่แผ่นดิน" returns 1 hit unfiltered,
+  // 0 with language=tha). A Thai-script query already constrains the results,
+  // so only filter when the user typed Latin script and wants Thai editions.
+  if (lang === 'th' && !THAI_SCRIPT.test(term)) params.set('language', 'tha');
+  params.set('fields', [
+    'key', 'title', 'subtitle', 'author_name', 'first_publish_year', 'publisher',
+    'number_of_pages_median', 'cover_i', 'isbn', 'subject', 'ebook_access', 'ia', 'language',
+  ].join(','));
+
+  const data = await getJSON(`https://openlibrary.org/search.json?${params}`, signal);
+  return (data.docs || []).map((d) => {
+    const isbns = d.isbn || [];
+    const freeLinks = [];
+    const olUrl = `https://openlibrary.org${d.key}`;
+
+    if (d.ebook_access === 'public') {
+      freeLinks.push({ label: 'Open Library (read free)', url: olUrl, kind: 'free read' });
+      if (d.ia?.[0]) {
+        freeLinks.push({ label: 'Internet Archive', url: `https://archive.org/details/${d.ia[0]}`, kind: 'free download' });
+      }
+    } else if (d.ebook_access === 'borrowable') {
+      freeLinks.push({ label: 'Open Library (borrow)', url: olUrl, kind: 'free borrow' });
+    }
+
+    return {
+      title: d.title + (d.subtitle ? `: ${d.subtitle}` : ''),
+      authors: d.author_name || [],
+      year: d.first_publish_year ? String(d.first_publish_year) : null,
+      publisher: d.publisher?.[0] || null,
+      pages: d.number_of_pages_median || null,
+      description: null,
+      cover: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : null,
+      isbn13: isbns.find((i) => i.length === 13) || null,
+      isbn10: isbns.find((i) => i.length === 10) || null,
+      subjects: (d.subject || []).slice(0, 8),
+      price: null,
+      buyLink: null,
+      infoLink: olUrl,
+      languages: d.language || [],
+      sources: ['Open Library'],
+      freeLinks,
+    };
+  });
+}
+
+/* ------------------------------------------------- Thai shops (no API) */
+
+/* Thai bookshops publish no API and send no CORS headers, so their pages are
+   fetched through a proxy: the local helper in server.js when it is running,
+   otherwise a public reader service. Both return raw HTML, so one parser
+   covers either route. */
+
+const LOCAL_PROXY = `${location.origin}/proxy`;
+const READER = 'https://r.jina.ai/';
+let localProxy = null; // null = not probed yet, true/false once known.
+
+async function probeLocalProxy() {
+  if (localProxy !== null) return localProxy;
+  try {
+    const r = await fetch(`${LOCAL_PROXY}/ping`, { signal: AbortSignal.timeout(1500) });
+    localProxy = r.ok;
+  } catch {
+    localProxy = false;
+  }
+  return localProxy;
+}
+
+/** Fetch a page or API through whichever proxy is available.
+    `format` is what the public reader should return: 'text' hands back the
+    response body untouched (used for JSON APIs), 'html' renders the page in a
+    real browser first. Pass needsJs for pages that only fill in via script —
+    the local proxy is a plain fetch and would return an empty shell. */
+async function proxyText(target, { format = 'text', needsJs = false } = {}, signal) {
+  const attempts = [];
+  if (!needsJs && await probeLocalProxy()) {
+    attempts.push({ url: `${LOCAL_PROXY}?url=${encodeURIComponent(target)}`, headers: {} });
+  }
+  attempts.push({ url: READER + target, headers: { 'X-Return-Format': format } });
+
+  let lastError;
+  for (const attempt of attempts) {
+    try {
+      const res = await fetch(attempt.url, { signal: timedSignal(signal), headers: attempt.headers });
+      if (res.status === 429) throw Object.assign(new Error('rate limited'), { code: 'rate-limit' });
+      if (!res.ok) throw Object.assign(new Error(`${res.status}`), { code: 'http' });
+      return await res.text();
+    } catch (err) {
+      if (signal.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+      lastError = err;
+    }
+  }
+  throw lastError?.code ? lastError : Object.assign(new Error('unreachable'), { code: 'offline' });
+}
+
+/** meb — Thailand's largest e-book shop. Results are written in by script, so
+    this one always needs the JS-rendering reader. Markup is semantic. */
+async function searchMeb({ field, term }, signal) {
+  if (field === 'isbn') return [];
+  const html = await proxyText(
+    `https://www.mebmarket.com/index.php?action=search_book&type=all&search=${encodeURIComponent(term)}`,
+    { format: 'html', needsJs: true },
+    signal,
+  );
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+
+  return [...doc.querySelectorAll('.parent_book_listing')].slice(0, 20).map((card) => {
+    const link = card.querySelector('h3.book_name a');
+    const title = link?.textContent.trim();
+    if (!title) return null;
+    const meta = [...card.querySelectorAll('.book_meta_info a')].map((a) => a.textContent.trim());
+    const href = link.getAttribute('href') || '';
+
+    return {
+      title,
+      authors: meta[0] ? [meta[0]] : [],
+      year: null,
+      publisher: 'meb',
+      pages: null,
+      description: null,
+      cover: card.querySelector('img.img_book_list')?.getAttribute('src') || null,
+      isbn13: null,
+      isbn10: null,
+      subjects: meta.slice(1, 3),
+      price: card.textContent.match(/฿\s*[\d,]+(?:\.\d+)?/)?.[0] || null,
+      buyLink: href.startsWith('http') ? href : `https://www.mebmarket.com${href}`,
+      infoLink: href.startsWith('http') ? href : `https://www.mebmarket.com${href}`,
+      languages: ['tha'],
+      sources: ['meb'],
+      freeLinks: [],
+    };
+  }).filter(Boolean);
+}
+
+/** SE-ED — the shop's own search API, the same one its website calls. Returns
+    covers, prices and an ISBN in the SKU, so these merge with Google Books and
+    Open Library records instead of showing up twice. */
+const SEED_PRICE_UNIT = 1e6; // the API quotes satang-millionths, 500000000 = ฿500
+
+function seedProduct(entry) {
+  const wrapper = entry.physicalProduct || entry.eBookAudio;
+  if (!wrapper) return null;
+  const item = wrapper.physicalProduct || wrapper.eBookAudio;
+  if (!item?.name) return null;
+
+  const kind = entry.physicalProduct ? 'physical' : 'e-book-audio';
+  const variant = Object.values(wrapper.extendedOrderProduct || {})[0]?.variants?.[0];
+  const amount = variant?.priceAfterDiscount || variant?.price;
+  const sku = item.variants?.[0]?.sku || '';
+  // The site builds product URLs as name-with-dashes plus the id; encodeURI
+  // leaves the ":" and brackets their slugs keep.
+  const url = `https://www.se-ed.com/${kind}/${encodeURI(item.name.replace(/ /g, '-'))}-${item.id}`;
+
+  return {
+    title: item.name,
+    authors: item.author ? [item.author] : [],
+    year: (item.publishAt || '').slice(0, 4) || null,
+    publisher: 'SE-ED',
+    pages: null,
+    description: null,
+    cover: item.cover || null,
+    isbn13: /^\d{13}$/.test(sku) ? sku : null,
+    isbn10: /^\d{9}[\dXx]$/.test(sku) ? sku : null,
+    subjects: item.category?.name ? item.category.name.split(', ').slice(0, 3) : [],
+    price: amount ? `฿${(Number(amount) / SEED_PRICE_UNIT).toLocaleString('th-TH')}` : null,
+    buyLink: url,
+    infoLink: url,
+    languages: ['tha'],
+    sources: ['SE-ED'],
+    freeLinks: [],
+  };
+}
+
+async function searchSeed({ field, term }, signal) {
+  const keyword = field === 'isbn' ? term.replace(/[^0-9Xx]/g, '') : term;
+  const body = await proxyText(
+    'https://mp-api.se-ed.com/web-bff/search-product'
+      + `?filter.keyword=${encodeURIComponent(keyword)}&page=1&perPage=20`,
+    { format: 'text' },
+    signal,
+  );
+
+  let data;
+  try {
+    data = JSON.parse(body);
+  } catch {
+    throw Object.assign(new Error('bad payload'), { code: 'http' });
+  }
+  return (data.products || []).map(seedProduct).filter(Boolean);
+}
+
+/* ----------------------------------------------------- source: Gutendex */
+
+async function searchGutenberg({ field, term, lang }, signal) {
+  if (field === 'isbn') return [];
+  const url = `https://gutendex.com/books?search=${encodeURIComponent(term)}`
+    + (lang === 'th' ? '&languages=th' : '');
+  const data = await getJSON(url, signal);
+  return (data.results || []).slice(0, 20).map((b) => {
+    const fmt = b.formats || {};
+    const pick = (type) => Object.entries(fmt)
+      .find(([k, v]) => k.startsWith(type) && !v.endsWith('.zip'))?.[1];
+    const freeLinks = [
+      pick('application/epub') && { label: 'Gutenberg (EPUB)', url: pick('application/epub'), kind: 'free download' },
+      pick('text/html') && { label: 'Gutenberg (read online)', url: pick('text/html'), kind: 'free read' },
+      pick('text/plain') && { label: 'Gutenberg (plain text)', url: pick('text/plain'), kind: 'free download' },
+    ].filter(Boolean);
+
+    return {
+      title: b.title,
+      authors: (b.authors || []).map((a) => a.name),
+      year: null,
+      publisher: 'Project Gutenberg',
+      pages: null,
+      description: null,
+      cover: fmt['image/jpeg'] || null,
+      isbn13: null,
+      isbn10: null,
+      subjects: (b.subjects || []).slice(0, 6),
+      price: null,
+      buyLink: null,
+      infoLink: `https://www.gutenberg.org/ebooks/${b.id}`,
+      languages: b.languages || [],
+      sources: ['Project Gutenberg'],
+      freeLinks,
+    };
+  });
+}
+
+/* ------------------------------------------- source: วิกิซอร์ซ (Wikisource) */
+
+/** Thai Wikisource holds public-domain Thai literature — Sunthorn Phu, royal
+    chronicles, old law codes — free in full. Search hits are usually chapter
+    subpages ("work/คำนำ"), so roll them up to the work they belong to. */
+async function searchThaiWikisource({ field, term }, signal) {
+  if (field === 'isbn') return [];
+  const url = 'https://th.wikisource.org/w/api.php?action=query&format=json&origin=*'
+    + '&generator=search&gsrnamespace=0&gsrlimit=30'
+    + '&prop=pageimages|info&inprop=url&piprop=thumbnail&pithumbsize=300'
+    + '&gsrsearch=' + encodeURIComponent(term);
+  const data = await getJSON(url, signal);
+
+  const works = new Map();
+  for (const page of Object.values(data.query?.pages || {})) {
+    const work = page.title.split('/')[0];
+    const isRoot = !page.title.includes('/');
+    const existing = works.get(work);
+    if (existing && !isRoot) {
+      if (!existing.cover && page.thumbnail?.source) existing.cover = page.thumbnail.source;
+      continue;
+    }
+    const pageUrl = isRoot
+      ? page.fullurl
+      : `https://th.wikisource.org/wiki/${encodeURIComponent(work.replace(/ /g, '_'))}`;
+    works.set(work, {
+      title: work.replace(/\s*\((\d{4})\)\s*$/, ''),
+      authors: [],
+      year: (work.match(/\((\d{4})\)/) || [])[1] || null,
+      publisher: 'วิกิซอร์ซ',
+      pages: null,
+      description: null,
+      cover: existing?.cover || page.thumbnail?.source || null,
+      isbn13: null,
+      isbn10: null,
+      subjects: [],
+      price: null,
+      buyLink: null,
+      infoLink: pageUrl,
+      languages: ['tha'],
+      sources: ['วิกิซอร์ซ'],
+      freeLinks: [{ label: 'วิกิซอร์ซ (อ่านเต็มเล่มฟรี)', url: pageUrl, kind: 'free read' }],
+    });
+  }
+  return [...works.values()];
+}
+
+const SOURCES = {
+  meb: { name: 'meb', run: searchMeb },
+  seed: { name: 'SE-ED', run: searchSeed },
+  google: { name: 'Google Books', run: searchGoogle },
+  openlibrary: { name: 'Open Library', run: searchOpenLibrary },
+  wikisource: { name: 'วิกิซอร์ซ', run: searchThaiWikisource },
+  gutenberg: { name: 'Project Gutenberg', run: searchGutenberg },
+};
+
+/* ------------------------------------------------------------ store links */
+
+const THAI_SCRIPT = /[฀-๿]/;
+
+/** Thai-language, by the source's own metadata or by the title's script. */
+function isThai(book) {
+  return (book.languages || []).some((l) => l === 'tha' || l === 'th')
+    || THAI_SCRIPT.test(book.title || '');
+}
+
+/** A Thai-language book whose author is written in Latin script is almost
+    always a translation — worth flagging, since those are what Thai readers
+    most often hunt for across shops. */
+function isTranslated(book) {
+  const author = (book.authors || [])[0] || '';
+  return isThai(book) && !!author && !THAI_SCRIPT.test(author);
+}
+
+/** Thai bookshops and e-book shops. None of them offer an API, so these are
+    search URLs — each pattern confirmed against the live site. */
+function thaiStoreLinks(q, qThai) {
+  return [
+    { label: 'SE-ED ซีเอ็ด', url: `https://www.se-ed.com/search?filter.keyword=${qThai}`, kind: 'ร้านหนังสือ' },
+    { label: 'นายอินทร์ Naiin', url: `https://www.naiin.com/search?keyword=${qThai}`, kind: 'ร้านหนังสือ' },
+    { label: 'meb (อีบุ๊ก)', url: `https://www.mebmarket.com/index.php?action=search_book&type=all&search=${qThai}`, kind: 'e-book' },
+    { label: 'ศูนย์หนังสือจุฬาฯ', url: `https://www.chulabook.com/categories?text=${qThai}`, kind: 'ร้านหนังสือ' },
+    { label: 'B2S', url: `https://www.b2s.co.th/search?q=${qThai}`, kind: 'ร้านหนังสือ' },
+    { label: 'Kinokuniya ไทย', url: `https://kinokuniya.co.th/search?q=${q}`, kind: 'นำเข้า' },
+    { label: 'วัชรญาณ', url: `https://vajirayana.org/search/node/${qThai}`, kind: 'free read' },
+  ];
+}
+
+/** Where to buy or borrow — built from the book's own title/author/ISBN.
+    Thai shops come first for Thai books; for everything else they still
+    appear below, since a Thai translation may exist under the same title. */
+function storeLinks(book) {
+  const titleAuthor = [book.title, (book.authors || [])[0]].filter(Boolean).join(' ');
+  const q = encodeURIComponent(titleAuthor);
+  // Thai shop search engines do better on the title alone than title + author.
+  const qThai = encodeURIComponent(book.title || titleAuthor);
+  const isbn = book.isbn13 || book.isbn10;
+  const links = [];
+
+  if (isThai(book)) links.push(...thaiStoreLinks(q, qThai));
+  if (book.buyLink) links.push({ label: 'Google Play Books', url: book.buyLink, kind: book.price || 'buy' });
+  links.push({ label: 'Amazon', url: isbn ? `https://www.amazon.com/s?k=${isbn}` : `https://www.amazon.com/s?k=${q}&i=stripbooks`, kind: 'buy' });
+  links.push({ label: 'Bookshop.org', url: isbn ? `https://bookshop.org/search?keywords=${isbn}` : `https://bookshop.org/search?keywords=${q}`, kind: 'indie' });
+  links.push({ label: 'Barnes & Noble', url: `https://www.barnesandnoble.com/s/${q}`, kind: 'buy' });
+  links.push({ label: 'Kobo', url: `https://www.kobo.com/search?query=${isbn || q}`, kind: 'ebook' });
+  links.push({ label: 'Apple Books', url: `https://books.apple.com/us/search?term=${q}`, kind: 'ebook' });
+  links.push({ label: 'AbeBooks (used)', url: isbn ? `https://www.abebooks.com/servlet/SearchResults?isbn=${isbn}` : `https://www.abebooks.com/servlet/SearchResults?kn=${q}`, kind: 'used' });
+  links.push({ label: 'WorldCat (libraries)', url: isbn ? `https://search.worldcat.org/search?q=bn%3A${isbn}` : `https://search.worldcat.org/search?q=${q}`, kind: 'borrow' });
+  links.push({ label: 'Standard Ebooks', url: `https://standardebooks.org/ebooks?query=${q}`, kind: 'free' });
+  if (!isThai(book)) {
+    links.push({ label: 'หาฉบับแปลไทย — SE-ED', url: `https://www.se-ed.com/search?filter.keyword=${qThai}`, kind: 'ฉบับไทย?' });
+    links.push({ label: 'หาฉบับแปลไทย — meb', url: `https://www.mebmarket.com/index.php?action=search_book&type=all&search=${qThai}`, kind: 'ฉบับไทย?' });
+  }
+  if (book.infoLink) links.push({ label: book.sources?.[0] || 'Source page', url: book.infoLink, kind: 'details' });
+
+  return dedupeLinks(links);
+}
+
+/* ---------------------------------------------------------------- search */
+
+let currentController = null;
+const FAIL_REASON = {
+  'rate-limit': 'จำกัดจำนวนคำขอ',
+  timeout: 'ตอบช้าเกินไป',
+  offline: 'เชื่อมต่อไม่ได้',
+  http: 'ตอบกลับผิดพลาด',
+};
+
+/** Each source is fetched independently and rendered the moment it lands,
+    so one slow or blocked API never holds up the rest. */
+async function runSearch(query, sourceKeys) {
+  const seq = ++searchSeq;
+  currentController?.abort();
+  currentController = new AbortController();
+  const { signal } = currentController;
+
+  $('#search-intro').hidden = true;
+  $('#results').innerHTML = '';
+
+  const merged = new Map();
+  const pending = new Set(sourceKeys.map((k) => SOURCES[k].name));
+  const failed = [];
+  results = [];
+  report(pending, failed);
+
+  await Promise.all(sourceKeys.map(async (key) => {
+    const { name, run } = SOURCES[key];
+    try {
+      const books = await run(query, signal);
+      if (seq !== searchSeq) return;
+      for (const book of books) {
+        if (!book.title) continue;
+        const id = fingerprint(book);
+        merged.set(id, merged.has(id) ? mergeBooks(merged.get(id), book) : { ...book, id });
+      }
+      results = [...merged.values()].map((b) => ({
+        ...b,
+        free: (b.freeLinks || []).length > 0,
+        thai: isThai(b),
+        translated: isTranslated(b),
+      }));
+    } catch (err) {
+      if (seq !== searchSeq || err.name === 'AbortError') return;
+      failed.push(`${name} ${FAIL_REASON[err.code] || 'ใช้งานไม่ได้'}`);
+    }
+    if (seq !== searchSeq) return;
+    pending.delete(name);
+    renderResults();
+    report(pending, failed);
+  }));
+}
+
+function report(pending, failed) {
+  const parts = [];
+  if (results.length) {
+    const free = results.filter((b) => b.free).length;
+    const thai = results.filter((b) => b.thai).length;
+    parts.push(`${results.length} เล่ม`);
+    if (thai) parts.push(`${thai} ภาษาไทย`);
+    if (free) parts.push(`อ่าน/โหลดฟรี ${free} เล่ม`);
+  }
+  if (pending.size) parts.push(`<span class="spinner"></span>กำลังค้นหา ${[...pending].join(', ')}…`);
+  else if (!results.length && !failed.length) parts.push('ไม่พบหนังสือที่ตรงกัน ลองใช้คำน้อยลงหรือสะกดแบบอื่น');
+  if (failed.length) parts.push(failed.join(' · '));
+  setStatus(parts.join(' · '), !pending.size && !results.length && failed.length > 0);
+}
+
+function setStatus(html, isError = false) {
+  const el = $('#search-status');
+  el.innerHTML = html;
+  el.classList.toggle('error', isError);
+}
+
+/* ---------------------------------------------------------------- library */
+
+function inLibrary(id) {
+  return library.some((b) => b.id === id);
+}
+
+function saveBook(book, status = 'buy') {
+  if (inLibrary(book.id)) {
+    toast('มีอยู่ในกองดองแล้ว');
+    return;
+  }
+  library.unshift({ ...book, status, note: '', savedAt: Date.now() });
+  save();
+  renderAll();
+  toast(`เก็บเข้า “${STATUSES[status]}” แล้ว`);
+}
+
+function removeBook(id) {
+  library = library.filter((b) => b.id !== id);
+  save();
+  renderAll();
+  toast('เอาออกจากกองดองแล้ว');
+}
+
+function updateBook(id, patch) {
+  const book = library.find((b) => b.id === id);
+  if (!book) return;
+  Object.assign(book, patch);
+  save();
+  renderAll();
+}
+
+function findBook(id) {
+  return library.find((b) => b.id === id) || results.find((b) => b.id === id);
+}
+
+/* ----------------------------------------------------------------- render */
+
+function coverHTML(book, cls = 'cover') {
+  if (book.cover) {
+    return `<img class="${cls}" src="${esc(book.cover)}" alt="" loading="lazy"
+              onerror="this.outerHTML='<div class=&quot;${cls} placeholder&quot;>📕</div>'">`;
+  }
+  return `<div class="${cls} placeholder">📕</div>`;
+}
+
+function metaLine(book) {
+  return [
+    book.price,
+    book.year,
+    book.pages ? `${book.pages} pages` : null,
+    book.publisher,
+  ].filter(Boolean).join(' · ');
+}
+
+function cardHTML(book, mode) {
+  const saved = inLibrary(book.id);
+  const badges = [
+    book.translated ? '<span class="badge thai">แปลไทย</span>'
+      : book.thai ? '<span class="badge thai">ไทย</span>' : '',
+    book.free ? '<span class="badge free">ฟรี</span>' : '',
+    mode === 'library' ? `<span class="badge status">${esc(STATUSES[book.status] || book.status)}</span>` : '',
+    ...(book.sources || []).map((s) => `<span class="badge">${esc(s)}</span>`),
+  ].join('');
+
+  const actions = mode === 'library'
+    ? `<select data-act="status" data-id="${esc(book.id)}" aria-label="Status">
+         ${Object.entries(STATUSES).map(([k, v]) =>
+           `<option value="${k}"${book.status === k ? ' selected' : ''}>${v}</option>`).join('')}
+       </select>
+       <span class="spacer"></span>
+       <button class="btn small" data-act="open" data-id="${esc(book.id)}">ลิงก์</button>
+       <button class="btn small ghost" data-act="remove" data-id="${esc(book.id)}">เอาออก</button>`
+    : `<button class="btn small primary" data-act="save" data-id="${esc(book.id)}" ${saved ? 'disabled' : ''}>
+         ${saved ? 'อยู่ในกองแล้ว' : (book.free ? 'เก็บไว้โหลด' : 'เก็บไว้ซื้อ')}
+       </button>
+       <span class="spacer"></span>
+       <button class="btn small" data-act="open" data-id="${esc(book.id)}">หาซื้อที่ไหน</button>`;
+
+  return `<article class="card">
+    <button class="card-main" data-act="open" data-id="${esc(book.id)}">
+      ${coverHTML(book)}
+      <div class="card-text">
+        <h3 class="card-title">${esc(book.title)}</h3>
+        <p class="card-author">${esc((book.authors || []).join(', ') || 'ไม่ทราบผู้แต่ง')}</p>
+        ${metaLine(book) ? `<p class="card-meta">${esc(metaLine(book))}</p>` : ''}
+        ${book.note ? `<p class="card-meta">📝 ${esc(book.note)}</p>` : ''}
+        <div class="badges">${badges}</div>
+      </div>
+    </button>
+    <div class="card-actions">${actions}</div>
+  </article>`;
+}
+
+function renderResults() {
+  let list = $('#free-only').checked ? results.filter((b) => b.free) : results;
+  // In Thai scope, non-Thai hits still matter — a Thai edition may exist under
+  // the same title — so they sink to the bottom rather than disappearing.
+  if (searchLang() === 'th') list = [...list].sort((a, b) => Number(b.thai) - Number(a.thai));
+  $('#results').innerHTML = list.map((b) => cardHTML(b, 'search')).join('');
+}
+
+function renderLibrary() {
+  const term = slug($('#library-filter').value);
+  const sort = $('#library-sort').value;
+
+  let list = library.filter((b) => activeStatus === 'all' || b.status === activeStatus);
+  if (term) {
+    list = list.filter((b) => slug(`${b.title} ${(b.authors || []).join(' ')} ${b.note || ''}`).includes(term));
+  }
+  if (sort === 'title') list = [...list].sort((a, b) => a.title.localeCompare(b.title));
+  if (sort === 'author') {
+    list = [...list].sort((a, b) =>
+      ((a.authors || [])[0] || '').localeCompare((b.authors || [])[0] || ''));
+  }
+
+  const counts = { all: library.length, buy: 0, download: 0, have: 0 };
+  for (const b of library) if (b.status in counts) counts[b.status]++;
+  $$('#status-filters .filter').forEach((btn) => {
+    btn.querySelector('span').textContent = counts[btn.dataset.status] || '';
+  });
+  $('#lib-count').textContent = library.length;
+
+  const empty = $('#library-empty');
+  if (!list.length) {
+    empty.hidden = false;
+    empty.innerHTML = library.length
+      ? '<strong>ไม่มีเล่มที่ตรง</strong>ไม่มีหนังสือที่เก็บไว้ตรงกับตัวกรองนี้'
+      : '<strong>กองดองยังว่าง</strong>ค้นหาหนังสือแล้วเก็บไว้ซื้อหรือโหลดทีหลัง';
+  } else {
+    empty.hidden = true;
+  }
+  $('#library').innerHTML = list.map((b) => cardHTML(b, 'library')).join('');
+}
+
+function renderAll() {
+  renderResults();
+  renderLibrary();
+}
+
+/* ----------------------------------------------------------------- dialog */
+
+function openDialog(id) {
+  const book = findBook(id);
+  if (!book) return;
+  const saved = inLibrary(book.id);
+  const free = book.freeLinks || [];
+  const stores = storeLinks(book);
+
+  const linkRow = (l) => `<a class="link-row${/free/i.test(l.kind) ? ' is-free' : ''}"
+       href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">
+       <span>${esc(l.label)}</span><span class="kind">${esc(l.kind)}</span></a>`;
+
+  $('#dialog-body').innerHTML = `
+    <button class="btn small ghost dialog-close" data-act="close">ปิด</button>
+    <div class="dialog-head">
+      ${coverHTML(book)}
+      <div>
+        <h2>${esc(book.title)}</h2>
+        <p class="card-author">${esc((book.authors || []).join(', ') || 'ไม่ทราบผู้แต่ง')}</p>
+        ${metaLine(book) ? `<p class="card-meta">${esc(metaLine(book))}</p>` : ''}
+        ${book.isbn13 || book.isbn10 ? `<p class="card-meta">ISBN ${esc(book.isbn13 || book.isbn10)}</p>` : ''}
+        <div class="badges">
+          ${isTranslated(book) ? '<span class="badge thai">แปลไทย</span>'
+            : isThai(book) ? '<span class="badge thai">ภาษาไทย</span>' : ''}
+          ${free.length ? '<span class="badge free">มีให้ฟรี</span>' : ''}
+          ${(book.sources || []).map((s) => `<span class="badge">${esc(s)}</span>`).join('')}
+        </div>
+      </div>
+    </div>
+    ${book.description ? `<p class="desc">${esc(book.description).slice(0, 1400)}</p>` : ''}
+    ${free.length ? `<p class="links-title">อ่านหรือโหลดฟรี</p>
+      <div class="links">${free.map(linkRow).join('')}</div>` : ''}
+    <p class="links-title">ซื้อหรือยืม</p>
+    <div class="links">${stores.map(linkRow).join('')}</div>
+    ${saved ? `
+      <p class="links-title">โน้ตของฉัน</p>
+      <textarea class="note-field" data-act="note" data-id="${esc(book.id)}"
+        placeholder="ฉบับไหน ราคาที่เห็น ใครแนะนำ…">${esc(book.note || '')}</textarea>` : ''}
+    <div class="dialog-actions">
+      ${saved
+        ? `<select data-act="status" data-id="${esc(book.id)}" aria-label="Status">
+             ${Object.entries(STATUSES).map(([k, v]) =>
+               `<option value="${k}"${book.status === k ? ' selected' : ''}>${v}</option>`).join('')}
+           </select>
+           <button class="btn" data-act="remove" data-id="${esc(book.id)}">เอาออกจากกองดอง</button>`
+        : `<button class="btn primary" data-act="save" data-id="${esc(book.id)}">เก็บไว้ทีหลัง</button>`}
+    </div>`;
+
+  $('#book-dialog').showModal();
+}
+
+/* ------------------------------------------------------------ import/export */
+
+function exportLibrary() {
+  if (!library.length) return toast('ยังไม่มีอะไรให้ส่งออก');
+  const blob = new Blob([JSON.stringify({ app: 'kongdong', version: 1, books: library }, null, 2)],
+    { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `book-pile-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast(`ส่งออก ${library.length} เล่มแล้ว`);
+}
+
+async function importLibrary(file) {
+  try {
+    const data = JSON.parse(await file.text());
+    const books = Array.isArray(data) ? data : data.books;
+    if (!Array.isArray(books)) throw new Error('bad shape');
+    let added = 0;
+    for (const b of books) {
+      if (!b?.title) continue;
+      const id = b.id || fingerprint(b);
+      if (inLibrary(id)) continue;
+      library.push({ status: 'buy', note: '', savedAt: Date.now(), ...b, id });
+      added++;
+    }
+    save();
+    renderAll();
+    toast(added ? `นำเข้า ${added} เล่มแล้ว` : 'ไม่มีเล่มใหม่ให้นำเข้า');
+  } catch {
+    toast('ไฟล์นี้ไม่ใช่ไฟล์ส่งออกของกองดอง');
+  }
+}
+
+/* ------------------------------------------------------------------ events */
+
+/* ------------------------------------------------- appearance controls */
+
+function buildSwatches() {
+  $('#accent-swatches').innerHTML = ACCENTS.map((a) => `
+    <button class="swatch" style="--h:${a.h}" data-h="${a.h}" type="button"
+            title="${esc(a.name)}" aria-label="${esc(a.name)}"
+            aria-pressed="${a.h === prefs.accent}"></button>`).join('');
+}
+
+function setAccent(h) {
+  prefs.accent = h;
+  applyPrefs();
+  $$('#accent-swatches .swatch').forEach((s) => {
+    s.setAttribute('aria-pressed', Number(s.dataset.h) === h);
+  });
+}
+
+function toggleAccentMenu(open) {
+  const menu = $('#accent-menu');
+  const show = open ?? menu.hidden;
+  menu.hidden = !show;
+  $('#accent-btn').setAttribute('aria-expanded', String(show));
+}
+
+$('#theme-btn').addEventListener('click', () => {
+  // Start from whatever is on screen now, so the first click always flips it.
+  const dark = prefs.theme === 'dark'
+    || (prefs.theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  prefs.theme = dark ? 'light' : 'dark';
+  applyPrefs();
+});
+
+$('#accent-btn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  toggleAccentMenu();
+});
+
+$('#accent-swatches').addEventListener('click', (e) => {
+  const swatch = e.target.closest('.swatch');
+  if (swatch) setAccent(Number(swatch.dataset.h));
+});
+
+document.addEventListener('click', (e) => {
+  if (!$('#accent-menu').hidden && !e.target.closest('.accent-wrap')) toggleAccentMenu(false);
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('#accent-menu').hidden) toggleAccentMenu(false);
+});
+
+buildSwatches();
+
+function showView(name) {
+  $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${name}`));
+  $$('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === name));
+  window.scrollTo({ top: 0 });
+}
+
+$('#search-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const term = $('#search-input').value.trim();
+  const sources = $$('input[name="source"]:checked').map((i) => i.value);
+  if (!term) return;
+  if (!sources.length) return setStatus('เลือกแหล่งค้นหาอย่างน้อยหนึ่งแหล่ง', true);
+  runSearch({ term, field: $('#search-field').value, lang: searchLang() }, sources);
+});
+
+const searchLang = () => $('input[name="lang"]:checked')?.value || 'any';
+
+$$('input[name="lang"]').forEach((radio) => radio.addEventListener('change', () => {
+  // วิกิซอร์ซ only holds Thai texts, so it follows the language scope.
+  $('input[name="source"][value="wikisource"]').checked = searchLang() === 'th';
+  if ($('#search-input').value.trim()) $('#search-form').requestSubmit();
+}));
+
+$('#free-only').addEventListener('change', renderResults);
+$('#library-filter').addEventListener('input', renderLibrary);
+$('#library-sort').addEventListener('change', renderLibrary);
+$('#export-btn').addEventListener('click', exportLibrary);
+$('#import-input').addEventListener('change', (e) => {
+  const file = e.target.files?.[0];
+  if (file) importLibrary(file);
+  e.target.value = '';
+});
+
+$('#status-filters').addEventListener('click', (e) => {
+  const btn = e.target.closest('.filter');
+  if (!btn) return;
+  activeStatus = btn.dataset.status;
+  $$('#status-filters .filter').forEach((b) => b.classList.toggle('active', b === btn));
+  renderLibrary();
+});
+
+document.addEventListener('click', (e) => {
+  const tab = e.target.closest('[data-view]');
+  if (tab) {
+    e.preventDefault();
+    showView(tab.dataset.view);
+    return;
+  }
+
+  const suggest = e.target.closest('[data-suggest]');
+  if (suggest) {
+    $('#search-input').value = suggest.dataset.suggest;
+    $('#search-form').requestSubmit();
+    return;
+  }
+
+  const el = e.target.closest('[data-act]');
+  if (!el || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') return;
+  const { act, id } = el.dataset;
+
+  if (act === 'close') $('#book-dialog').close();
+  if (act === 'open') openDialog(id);
+  if (act === 'save') {
+    const book = findBook(id);
+    if (book) saveBook(book, book.free ? 'download' : 'buy');
+    if ($('#book-dialog').open) openDialog(id);
+  }
+  if (act === 'remove') {
+    removeBook(id);
+    if ($('#book-dialog').open) $('#book-dialog').close();
+  }
+});
+
+document.addEventListener('change', (e) => {
+  const el = e.target.closest('select[data-act="status"]');
+  if (!el) return;
+  updateBook(el.dataset.id, { status: el.value });
+  toast(`ย้ายไป “${STATUSES[el.value]}” แล้ว`);
+});
+
+document.addEventListener('input', (e) => {
+  const el = e.target.closest('textarea[data-act="note"]');
+  if (!el) return;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => updateBook(el.dataset.id, { note: el.value.trim() }), 400);
+});
+
+$('#book-dialog').addEventListener('click', (e) => {
+  if (e.target.id === 'book-dialog') e.target.close();
+});
+
+renderAll();
