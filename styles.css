@@ -626,6 +626,29 @@ dialog::backdrop { background: oklch(15% 0.02 60 / 0.55); backdrop-filter: blur(
 }
 .link-row.state-none:hover { opacity: .75; background: var(--surface-2); transform: none; }
 .link-row.state-none .kind { font-weight: 600; }
+/* A shop that forbids automated search is not dimmed — nothing is known
+   about its stock either way, so it reads as an invitation to look. */
+.link-row.state-manual { border-style: dashed; }
+.link-row.state-manual .kind { color: var(--accent); }
+
+.manual-shops {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 2px 0 6px;
+  font-size: 12.5px;
+}
+.manual-label { color: var(--muted); }
+.manual-link {
+  color: var(--accent);
+  text-decoration: none;
+  border: 1px dashed var(--line);
+  border-radius: 99px;
+  padding: 3px 11px;
+  transition: border-color .16s var(--ease), background .16s var(--ease);
+}
+.manual-link:hover { border-color: var(--accent); background: var(--accent-soft); }
 /* --------------------------------------------------------- same series */
 
 .muted-count {

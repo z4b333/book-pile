@@ -84,10 +84,30 @@ Not every shop can be a search source. What each one allows:
 | **B2S** | Not yet | Has a REST API, but the query travels in a POST body that has not been worked out |
 | **Chulabook**, **วัชรญาณ** | Not investigated | Link-only for now |
 
-Naiin is the genuinely blocked one. Its *product* pages fetch fine — only search is protected —
-which does not help, because you cannot reach a product page for a book you cannot search for.
-A book sold only on Naiin will not appear in results; the Naiin link is still offered so you can
-check by hand.
+Naiin is the genuinely blocked one, and deliberately so. Its `robots.txt` says, for every
+user-agent:
+
+```
+User-agent: *
+Allow: /
+Disallow: /api/v1
+Disallow: /search-result
+Disallow: /autocomplete
+```
+
+Its product pages are allowed and do fetch fine; search, autocomplete and the API are not, and
+the Cloudflare `403` enforces that. So this is not a bug to route around — getting past it would
+mean defeating bot protection against the shop's stated wishes. **Naiin will stay unsearchable
+here.** A book sold only on Naiin will not appear in results.
+
+What the app does instead: after every search it offers a one-click manual search at the shops
+it is not allowed to query, pre-filled with what you typed, and the Naiin row in a book's links
+panel is marked *ค้นเองในเว็บ* with a note explaining why its stock cannot be checked. It is
+never greyed out as "ไม่พบ", because nothing is known about its stock either way.
+
+The only legitimate ways to change this would be an official API or affiliate feed from Naiin,
+or crawling the product URLs in their published `sitemap.xml` — allowed by robots.txt, but a
+disproportionate amount of machinery for one shop.
 
 Shops that cannot be searched are never dimmed in the links panel. Not knowing is not the same
 as knowing a shop lacks the book, and greying them out would be a guess presented as a fact.

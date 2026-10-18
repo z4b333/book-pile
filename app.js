@@ -721,7 +721,7 @@ function isTranslated(book) {
 function thaiStoreLinks(q, qThai) {
   return [
     { shop: 'seed', label: 'SE-ED ซีเอ็ด', url: `https://www.se-ed.com/search?filter.keyword=${qThai}`, kind: 'ร้านหนังสือ' },
-    { label: 'นายอินทร์ Naiin', url: `https://www.naiin.com/search?keyword=${qThai}`, kind: 'ร้านหนังสือ' },
+    { manual: true, label: 'นายอินทร์ Naiin', url: `https://www.naiin.com/search?keyword=${qThai}`, kind: 'ค้นเองในเว็บ' },
     { shop: 'meb', label: 'meb (อีบุ๊ก)', url: `https://www.mebmarket.com/index.php?action=search_book&type=all&search=${qThai}`, kind: 'e-book' },
     { label: 'ศูนย์หนังสือจุฬาฯ', url: `https://www.chulabook.com/categories?text=${qThai}`, kind: 'ร้านหนังสือ' },
     { label: 'B2S', url: `https://www.b2s.co.th/search?q=${qThai}`, kind: 'ร้านหนังสือ' },
@@ -801,6 +801,7 @@ async function runSearch(query, sourceKeys) {
 
   $('#search-intro').hidden = true;
   $('#results').innerHTML = '';
+  showManualShops(query.term);
 
   const merged = new Map();
   const pending = new Set(sourceKeys.map((k) => SOURCES[k].name));
@@ -848,6 +849,27 @@ function report(pending, failed) {
   else if (!results.length && !failed.length) parts.push('ไม่พบหนังสือที่ตรงกัน ลองใช้คำน้อยลงหรือสะกดแบบอื่น');
   if (failed.length) parts.push(failed.join(' · '));
   setStatus(parts.join(' · '), !pending.size && !results.length && failed.length > 0);
+}
+
+/* Shops that cannot be searched automatically. Naiin's robots.txt disallows
+   /search-result and /autocomplete outright, and its Cloudflare rules enforce
+   that with a 403, so the honest thing is to hand over a link rather than
+   pretend the shop has nothing. */
+const MANUAL_SHOPS = [
+  { label: 'นายอินทร์', url: (q) => `https://www.naiin.com/search?keyword=${q}` },
+  { label: 'B2S', url: (q) => `https://www.b2s.co.th/search?q=${q}` },
+  { label: 'ศูนย์หนังสือจุฬาฯ', url: (q) => `https://www.chulabook.com/categories?text=${q}` },
+];
+
+function showManualShops(term) {
+  const box = $('#manual-shops');
+  if (!term) { box.hidden = true; return; }
+  const q = encodeURIComponent(term);
+  box.hidden = false;
+  box.innerHTML = `<span class="manual-label">ค้นอัตโนมัติไม่ได้ ลองดูเอง</span>`
+    + MANUAL_SHOPS.map((shop) =>
+      `<a class="manual-link" href="${esc(shop.url(q))}" target="_blank" rel="noopener noreferrer">${shop.label}</a>`
+    ).join('');
 }
 
 function setStatus(html, isError = false) {
@@ -1019,7 +1041,9 @@ function openDialog(id) {
   const stores = storeLinks(book);
 
   const linkRow = (l) => `<a class="link-row${/free/i.test(l.kind) ? ' is-free' : ''}${
-         l.state ? ` state-${l.state}` : ''}"${l.shop ? ` data-shop="${l.shop}"` : ''}
+         l.state ? ` state-${l.state}` : ''}${l.manual ? ' state-manual' : ''}"${
+         l.manual ? ' title="ร้านนี้ไม่อนุญาตให้ค้นหาอัตโนมัติ จึงตรวจสต็อกให้ไม่ได้"' : ''}${
+         l.shop ? ` data-shop="${l.shop}"` : ''}
        href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">
        ${l.state === 'check' ? '<span class="spinner"></span>' : ''}
        <span>${esc(l.label)}</span><span class="kind">${esc(l.kind)}</span></a>`;
