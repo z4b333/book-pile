@@ -29,6 +29,7 @@ detects the helper is missing and routes shop requests through a public reader i
 | --- | --- | --- |
 | **meb** (mebmarket.com) | Thailand's largest e-book shop — cover, title, author, ISBN, category, price, direct product link. **Needs `node server.js`** (see below) | No |
 | **SE-ED** (se-ed.com) | The shop's own search API — cover, title, price, year, and an ISBN in the SKU | No |
+| **Kinokuniya ไทย** (kinokuniya.co.th) | Shopify predictive search — English and imported titles, cover, price, publisher, ISBN | No |
 | [Google Books](https://developers.google.com/books) | Thai e-books (SE-ED, Amarin and others publish here), descriptions, prices, buy links. `langRestrict=th` in Thai scope | No |
 | [Open Library](https://openlibrary.org/developers/api) | Covers, ISBNs, borrow/read-free status. `language=tha` in Thai scope | No |
 | [วิกิซอร์ซ / Thai Wikisource](https://th.wikisource.org) | Public-domain Thai literature — Sunthorn Phu, royal chronicles, old law codes — free in full | No |
@@ -69,6 +70,27 @@ API, so text is decoded before use.
 Cloudflare and answers `403` to any automated request. It stays a link-only shop.
 
 The local helper only proxies hosts on its allowlist, so it never becomes an open relay.
+
+### Which shops can be searched, and which block it
+
+Not every shop can be a search source. What each one allows:
+
+| Shop | Searchable? | How |
+| --- | --- | --- |
+| **SE-ED** | Yes, anywhere | Its own JSON search API, a plain GET |
+| **Kinokuniya ไทย** | Yes, anywhere | Shopify predictive search (`/search/suggest.json`); the product handle is the ISBN |
+| **meb** | Only with `node server.js` | Its endpoint is POST-only and no public proxy will POST |
+| **Naiin** | **No** | `/search` answers `403` from Cloudflare to any automated request |
+| **B2S** | Not yet | Has a REST API, but the query travels in a POST body that has not been worked out |
+| **Chulabook**, **วัชรญาณ** | Not investigated | Link-only for now |
+
+Naiin is the genuinely blocked one. Its *product* pages fetch fine — only search is protected —
+which does not help, because you cannot reach a product page for a book you cannot search for.
+A book sold only on Naiin will not appear in results; the Naiin link is still offered so you can
+check by hand.
+
+Shops that cannot be searched are never dimmed in the links panel. Not knowing is not the same
+as knowing a shop lacks the book, and greying them out would be a guess presented as a fact.
 
 ### Thai focus
 
@@ -223,6 +245,8 @@ Notes:
   is greyed out. Everything else — SE-ED, Google Books, Open Library, วิกิซอร์ซ — works there.
 - **Naiin** is link-only: its search is Cloudflare-protected (`403`), so it cannot be a result
   source. Its product pages do load, but that does not help you find a book you cannot search for.
+- **B2S** has a usable-looking REST API whose query is in a POST body; adding it would be the
+  next source worth the effort.
 - **Thai shop search is fuzzy, and is now filtered.** SE-ED returns 20 loosely-related titles
   rather than nothing when it has no real match — "Assassination Classroom" came back with
   "Google Classroom". Results it returns must now contain the whole query phrase, or every word

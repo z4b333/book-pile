@@ -453,6 +453,56 @@ async function searchMeb({ term }, signal) {
   });
 }
 
+/* Kinokuniya Thailand runs on Shopify, whose predictive-search endpoint is a
+   plain GET returning JSON. Unlike meb that works through either proxy, so
+   this source is available on a static host too. The Shopify product handle
+   is the ISBN, which lets these merge with the other sources. */
+const KINO_ORIGIN = 'https://kinokuniya.co.th';
+
+async function searchKinokuniya({ field, term }, signal) {
+  const keyword = field === 'isbn' ? term.replace(/[^0-9Xx]/g, '') : term;
+  const body = await proxyText(
+    `${KINO_ORIGIN}/search/suggest.json?q=${encodeURIComponent(keyword)}`
+      + '&resources[type]=product&resources[limit]=10',
+    { format: 'text' },
+    signal,
+  );
+
+  let data;
+  try {
+    data = JSON.parse(body);
+  } catch {
+    throw Object.assign(new Error('bad payload'), { code: 'http' });
+  }
+
+  const books = (data.resources?.results?.products || []).map((p) => {
+    const url = KINO_ORIGIN + String(p.url || '').split('?')[0];
+    const baht = Number(p.price);
+    return {
+      title: p.title,
+      authors: [],
+      year: null,
+      publisher: p.vendor || 'Kinokuniya',
+      pages: null,
+      description: null,
+      cover: p.featured_image || p.image || null,
+      isbn13: /^\d{13}$/.test(p.handle || '') ? p.handle : null,
+      isbn10: null,
+      subjects: (p.tags || []).slice(0, 3),
+      price: Number.isFinite(baht) ? `฿${baht.toLocaleString('th-TH')}` : null,
+      buyLink: url,
+      infoLink: url,
+      languages: [],
+      digital: false,
+      sources: ['Kinokuniya'],
+      shopLinks: { kino: url },
+      freeLinks: [],
+    };
+  }).filter((b) => b.title);
+
+  return field === 'isbn' ? books : books.filter((b) => matchesQuery(b, term));
+}
+
 /** SE-ED — the shop's own search API, the same one its website calls. Returns
     covers, prices and an ISBN in the SKU, so these merge with Google Books and
     Open Library records instead of showing up twice. */
@@ -604,6 +654,7 @@ async function searchThaiWikisource({ field, term }, signal) {
 const SOURCES = {
   meb: { name: 'meb', run: searchMeb },
   seed: { name: 'SE-ED', run: searchSeed },
+  kino: { name: 'Kinokuniya', run: searchKinokuniya },
   google: { name: 'Google Books', run: searchGoogle },
   openlibrary: { name: 'Open Library', run: searchOpenLibrary },
   wikisource: { name: 'วิกิซอร์ซ', run: searchThaiWikisource },
@@ -674,7 +725,7 @@ function thaiStoreLinks(q, qThai) {
     { shop: 'meb', label: 'meb (อีบุ๊ก)', url: `https://www.mebmarket.com/index.php?action=search_book&type=all&search=${qThai}`, kind: 'e-book' },
     { label: 'ศูนย์หนังสือจุฬาฯ', url: `https://www.chulabook.com/categories?text=${qThai}`, kind: 'ร้านหนังสือ' },
     { label: 'B2S', url: `https://www.b2s.co.th/search?q=${qThai}`, kind: 'ร้านหนังสือ' },
-    { label: 'Kinokuniya ไทย', url: `https://kinokuniya.co.th/search?q=${q}`, kind: 'นำเข้า' },
+    { shop: 'kino', label: 'Kinokuniya ไทย', url: `https://kinokuniya.co.th/search?q=${q}`, kind: 'นำเข้า' },
     { label: 'วัชรญาณ', url: `https://vajirayana.org/search/node/${qThai}`, kind: 'free read' },
   ];
 }
@@ -700,7 +751,15 @@ function storeLinks(book) {
   const isbn = book.isbn13 || book.isbn10;
   const links = [];
 
-  if (isThai(book)) links.push(...withShopState(thaiStoreLinks(q, qThai), book));
+  if (isThai(book)) {
+    links.push(...withShopState(thaiStoreLinks(q, qThai), book));
+  } else {
+    // Kinokuniya is the Thai shop that stocks English imports, so for a
+    // non-Thai book it belongs at the top rather than not at all.
+    links.push(...withShopState([
+      { shop: 'kino', label: 'Kinokuniya ไทย', url: `https://kinokuniya.co.th/search?q=${q}`, kind: 'นำเข้า' },
+    ], book));
+  }
   if (book.buyLink) links.push({ label: 'Google Play Books', url: book.buyLink, kind: book.price || 'buy' });
   links.push({ label: 'Amazon', url: isbn ? `https://www.amazon.com/s?k=${isbn}` : `https://www.amazon.com/s?k=${q}&i=stripbooks`, kind: 'buy' });
   links.push({ label: 'Bookshop.org', url: isbn ? `https://bookshop.org/search?keywords=${isbn}` : `https://bookshop.org/search?keywords=${q}`, kind: 'indie' });
@@ -1016,6 +1075,7 @@ const shopChecks = new Map(); // book id -> { seed: url|null, meb: url|null }
 const CHECKABLE = {
   seed: { run: searchSeed, source: 'SE-ED' },
   meb: { run: searchMeb, source: 'meb' },
+  kino: { run: searchKinokuniya, source: 'Kinokuniya' },
 };
 
 /* One search per shop answers both questions a dialog asks: does this shop
