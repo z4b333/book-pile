@@ -27,6 +27,7 @@
       </nav>
 
       <div class="appearance">
+        <button id="help-btn" class="icon-btn" type="button" aria-label="วิธีใช้" title="วิธีใช้">?</button>
         <button id="theme-btn" class="icon-btn" type="button" aria-label="สลับโหมดสว่าง/มืด" title="สลับโหมดสว่าง/มืด">
           <span class="theme-icon"></span>
         </button>
@@ -129,6 +130,61 @@
       <div id="library" class="grid"></div>
     </section>
   </main>
+
+  <dialog id="guide-dialog" aria-labelledby="guide-title">
+    <div class="dialog-inner guide">
+      <button class="btn small ghost dialog-close" data-guide-close type="button">ปิด</button>
+      <h2 id="guide-title">วิธีใช้กองดอง</h2>
+      <p class="guide-lead">ค้นหาหนังสือจากร้านไทยและห้องสมุดฟรีในที่เดียว แล้วเก็บไว้ซื้อหรือโหลดทีหลัง</p>
+
+      <ol class="guide-steps">
+        <li>
+          <strong>ค้นหา</strong>
+          พิมพ์ชื่อหนังสือ ผู้แต่ง หรือ ISBN แล้วกดค้นหา
+          ระบบจะค้นจาก meb, SE-ED, Kinokuniya, Open Library และวิกิซอร์ซ พร้อมกัน
+          ผลลัพธ์จะทยอยขึ้นตามที่แต่ละแหล่งตอบกลับมา
+        </li>
+        <li>
+          <strong>กรองให้แคบลง</strong>
+          เลือกภาษา (ไทย / ทุกภาษา) รูปแบบ (นิยาย ไลท์โนเวล การ์ตูน อีบุ๊ก)
+          หรือปิดแหล่งที่ไม่ต้องการ และติ๊ก “เฉพาะที่โหลดฟรี” เพื่อดูเฉพาะเล่มที่อ่านฟรีได้
+        </li>
+        <li>
+          <strong>เก็บเข้ากองดอง</strong>
+          กด <em>เก็บไว้ซื้อ</em> หรือ <em>เก็บไว้โหลด</em> แล้วดูได้ที่แท็บ <em>กองของฉัน</em>
+          แต่ละเล่มตั้งสถานะ รอซื้อ / รอโหลด / ได้แล้ว และใส่โน้ตของตัวเองได้
+        </li>
+        <li>
+          <strong>ดูว่าร้านไหนมี</strong>
+          กดที่หนังสือจะเห็นลิงก์ของทุกร้าน พร้อมบอกว่าเช็กแล้วหรือยัง
+          <span class="guide-legend">
+            <span class="legend-item"><i class="dot have"></i>มีเล่มนี้ — ยืนยันแล้ว ลิงก์ตรงไปหน้าสินค้า</span>
+            <span class="legend-item"><i class="dot none"></i>ไม่พบ — เช็กแล้วร้านนี้ไม่มี</span>
+            <span class="legend-item"><i class="dot manual"></i>ค้นเองในเว็บ — ร้านไม่อนุญาตให้ค้นอัตโนมัติ ต้องกดไปดูเอง</span>
+          </span>
+        </li>
+        <li>
+          <strong>เล่มอื่นในชุด</strong>
+          ถ้าเป็นหนังสือชุด จะแสดงเล่มอื่นเรียงตามลำดับ กดเพื่อเปิดดูเล่มนั้นต่อได้เลย
+        </li>
+        <li>
+          <strong>ข้อมูลอยู่ในเครื่องคุณ</strong>
+          กองดองเก็บไว้ในเบราว์เซอร์นี้เท่านั้น ไม่มีบัญชี ไม่ส่งไปไหน
+          ถ้าจะย้ายเครื่องหรือสำรองไว้ ให้ใช้ปุ่ม <em>ส่งออก</em> แล้ว <em>นำเข้า</em> ที่อีกเครื่อง
+        </li>
+      </ol>
+
+      <p class="guide-tip">เปลี่ยนสีและโหมดสว่าง/มืดได้ที่ปุ่มมุมขวาบน · เปิดคู่มือนี้อีกครั้งได้ที่ปุ่ม <strong>?</strong></p>
+
+      <div class="guide-foot">
+        <label class="guide-check">
+          <input type="checkbox" id="guide-hide">
+          <span>ไม่ต้องแสดงอีก</span>
+        </label>
+        <button class="btn primary" data-guide-close type="button">เริ่มใช้งาน</button>
+      </div>
+    </div>
+  </dialog>
 
   <dialog id="book-dialog" aria-label="รายละเอียดหนังสือ">
     <div id="dialog-body" class="dialog-inner"></div>

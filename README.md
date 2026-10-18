@@ -205,6 +205,20 @@ Checks run when the dialog opens and are cached per book for the session. Titles
 loosely in both directions, since shop listings add volume numbers, `(PDF)` and box-set
 wording to the same book.
 
+## First-run guide
+
+A short Thai walkthrough opens on a first visit: how searching works, what the filters do, how
+to save into the pile, what the availability colours mean, series browsing, and the fact that
+data lives only in that browser.
+
+It carries a **ไม่ต้องแสดงอีก** checkbox. Closing without ticking leaves it to open again next
+time; ticking it stores `seenGuide` in `bookpile/prefs`. Either way the **?** button in the
+header reopens it, and unticking the box inside restores it on future visits — so the
+explanation cannot be lost by clicking the wrong thing.
+
+The dialog scrolls, and its footer is pinned to the bottom, because the guide is taller than a
+phone screen and the checkbox would otherwise sit below the fold.
+
 ## Look and feel
 
 The interface is in Thai. Two controls sit in the top right:

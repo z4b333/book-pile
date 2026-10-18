@@ -49,9 +49,9 @@ const ACCENTS = [
 
 const prefs = (() => {
   try {
-    return { accent: 45, theme: 'auto', ...JSON.parse(readStored(PREFS_KEY) || '{}') };
+    return { accent: 45, theme: 'auto', seenGuide: false, ...JSON.parse(readStored(PREFS_KEY) || '{}') };
   } catch {
-    return { accent: 45, theme: 'auto' };
+    return { accent: 45, theme: 'auto', seenGuide: false };
   }
 })();
 
@@ -1204,6 +1204,34 @@ document.addEventListener('keydown', (e) => {
 });
 
 buildSwatches();
+
+/* ------------------------------------------------------------ the guide */
+
+/* Shown once on a first visit. Dismissing without ticking the box leaves it
+   to appear next time, and the ? button reopens it either way — so nobody
+   can lose the explanation permanently by clicking the wrong thing. */
+function openGuide() {
+  $('#guide-hide').checked = !!prefs.seenGuide;
+  $('#guide-dialog').showModal();
+}
+
+function closeGuide() {
+  prefs.seenGuide = $('#guide-hide').checked;
+  applyPrefs();
+  $('#guide-dialog').close();
+}
+
+$('#help-btn').addEventListener('click', openGuide);
+$('#guide-dialog').addEventListener('click', (e) => {
+  if (e.target.id === 'guide-dialog' || e.target.closest('[data-guide-close]')) closeGuide();
+});
+// Escape closes the dialog natively; keep the checkbox honoured either way.
+$('#guide-dialog').addEventListener('close', () => {
+  prefs.seenGuide = $('#guide-hide').checked;
+  applyPrefs();
+});
+
+if (!prefs.seenGuide) openGuide();
 
 
 function showView(name) {
