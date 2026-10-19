@@ -241,7 +241,7 @@ function editionKey(book) {
   const base = slug(seriesBase(book.title)) || slug(book.title);
   const volume = volumeOf(book.title) ?? '';
   const author = slug((book.authors || [])[0] || '').split(' ').pop() || '';
-  return `${base}#${volume}#${author}#${mediaOf(book)}`;
+  return `${base}#${volume}#${author}#${mediaOf(book) || 'work'}`;
 }
 
 function groupEditions(books) {
@@ -547,6 +547,113 @@ async function searchSeed({ field, term }, signal) {
   return field === 'isbn' ? books : books.filter((b) => matchesQuery(b, term, field));
 }
 
+/* ------------------------------------------------- source: AniList */
+
+/* AniList is a catalogue rather than a shop: it knows manga and light novels
+   far better than any bookshop search does, and its API is public, keyless
+   and CORS-enabled, so it works straight from the page with no proxy.
+   Entries describe a *work*, not an edition for sale, so they carry no
+   รูปแบบ and the links panel is what takes you to a shop that stocks it. */
+const ANILIST_QUERY = `query ($search: String) {
+  Page(perPage: 20) {
+    media(search: $search, type: MANGA, sort: SEARCH_MATCH) {
+      title { romaji english native }
+      format genres volumes siteUrl countryOfOrigin
+      startDate { year }
+      coverImage { large }
+    }
+  }
+}`;
+
+// AniList's format tells us which of our genres a work belongs to.
+const ANILIST_GENRE = {
+  NOVEL: 'ไลท์โนเวล',
+  MANGA: 'การ์ตูน',
+  ONE_SHOT: 'การ์ตูน',
+  MANHWA: 'การ์ตูน',
+  MANHUA: 'การ์ตูน',
+};
+
+async function searchAniList({ field, term }, signal) {
+  if (field === 'isbn') return [];
+  const res = await fetch('https://graphql.anilist.co', {
+    method: 'POST',
+    signal: timedSignal(signal),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: ANILIST_QUERY, variables: { search: term } }),
+  });
+  if (res.status === 429) throw Object.assign(new Error('rate limited'), { code: 'rate-limit' });
+  if (!res.ok) throw Object.assign(new Error(`${res.status}`), { code: 'http' });
+  const data = await res.json();
+
+  return (data.data?.Page?.media || []).map((m) => {
+    const title = m.title?.english || m.title?.romaji || m.title?.native;
+    if (!title) return null;
+    return {
+      title,
+      authors: [],
+      year: m.startDate?.year ? String(m.startDate.year) : null,
+      publisher: 'AniList',
+      pages: null,
+      description: null,
+      cover: m.coverImage?.large || null,
+      isbn13: null,
+      isbn10: null,
+      // The Thai genre word goes in first so the genre filter reads it.
+      subjects: [ANILIST_GENRE[m.format], ...(m.genres || []).slice(0, 3)].filter(Boolean),
+      volumeCount: m.volumes || null,
+      price: null,
+      buyLink: null,
+      infoLink: m.siteUrl || null,
+      languages: [],
+      digital: null, // a work, not an edition — neither printed nor digital
+      sources: ['AniList'],
+      freeLinks: [],
+    };
+  }).filter(Boolean);
+}
+
+/* ------------------------------------------ source: Internet Archive */
+
+/* Millions of scanned and public-domain texts, free to read or borrow.
+   Plain GET with CORS, so this one also needs no proxy. */
+async function searchArchive({ field, term }, signal) {
+  if (field === 'isbn') return [];
+  const q = `${term} AND mediatype:texts`;
+  const params = new URLSearchParams({ q, rows: '20', page: '1', output: 'json' });
+  for (const f of ['identifier', 'title', 'creator', 'year', 'language', 'subject']) {
+    params.append('fl[]', f);
+  }
+  const data = await getJSON(`https://archive.org/advancedsearch.php?${params}`, signal);
+
+  return (data.response?.docs || []).map((d) => {
+    const title = Array.isArray(d.title) ? d.title[0] : d.title;
+    if (!title) return null;
+    const url = `https://archive.org/details/${d.identifier}`;
+    const creator = Array.isArray(d.creator) ? d.creator[0] : d.creator;
+    const langs = [].concat(d.language || []).map((l) => String(l).toLowerCase());
+    return {
+      title,
+      authors: creator ? [creator] : [],
+      year: d.year ? String(d.year) : null,
+      publisher: 'Internet Archive',
+      pages: null,
+      description: null,
+      cover: `https://archive.org/services/img/${d.identifier}`,
+      isbn13: null,
+      isbn10: null,
+      subjects: [].concat(d.subject || []).slice(0, 4),
+      price: null,
+      buyLink: null,
+      infoLink: url,
+      languages: langs,
+      digital: true,
+      sources: ['Internet Archive'],
+      freeLinks: [{ label: 'Internet Archive (อ่านฟรี)', url, kind: 'free read' }],
+    };
+  }).filter(Boolean);
+}
+
 /* ----------------------------------------------------- source: Gutendex */
 
 async function searchGutenberg({ field, term, lang }, signal) {
@@ -644,6 +751,8 @@ const SOURCE_MEDIA = {
   openlibrary: ['physical', 'ebook'],
   wikisource: ['ebook'],
   gutenberg: ['ebook'],
+  archive: ['ebook'],
+  anilist: [], // a catalogue of works, so it fits no single รูปแบบ
 };
 
 const SOURCES = {
@@ -651,6 +760,8 @@ const SOURCES = {
   seed: { name: 'SE-ED', run: searchSeed },
   kino: { name: 'Kinokuniya', run: searchKinokuniya },
   openlibrary: { name: 'Open Library', run: searchOpenLibrary },
+  anilist: { name: 'AniList', run: searchAniList },
+  archive: { name: 'Internet Archive', run: searchArchive },
   wikisource: { name: 'วิกิซอร์ซ', run: searchThaiWikisource },
   gutenberg: { name: 'Project Gutenberg', run: searchGutenberg },
 };
@@ -689,9 +800,12 @@ function genreOf(book) {
   return null;
 }
 
-/** Physical or digital, from the flag each source reports. */
+/** Physical, digital, or neither — a catalogue entry describes a work
+    rather than an edition you can buy, so it has no รูปแบบ at all. */
 function mediaOf(book) {
-  return book.digital ? 'ebook' : 'physical';
+  if (book.digital === true) return 'ebook';
+  if (book.digital === false) return 'physical';
+  return null;
 }
 
 /** Thai, English, or something else — metadata first, then the title's script. */
@@ -941,7 +1055,12 @@ function coverHTML(book, cls = 'cover') {
 /** The labels shown on a card: genre first, then physical/e-book. */
 function bookTags(book) {
   const genre = genreOf(book);
-  return [genre ? GENRE_LABELS[genre] : null, MEDIA_LABELS[mediaOf(book)]].filter(Boolean);
+  const media = mediaOf(book);
+  return [
+    genre ? GENRE_LABELS[genre] : null,
+    media ? MEDIA_LABELS[media] : 'ซีรีส์',
+    book.volumeCount ? `${book.volumeCount} เล่ม` : null,
+  ].filter(Boolean);
 }
 
 function metaLine(book) {

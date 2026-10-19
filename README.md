@@ -31,6 +31,8 @@ detects the helper is missing and routes shop requests through a public reader i
 | **SE-ED** (se-ed.com) | The shop's own search API — cover, title, price, year, and an ISBN in the SKU | No |
 | **Kinokuniya ไทย** (kinokuniya.co.th) | Shopify predictive search — English and imported titles, cover, price, publisher, ISBN | No |
 | [Open Library](https://openlibrary.org/developers/api) | Covers, ISBNs, borrow/read-free status. `language=tha` in Thai scope | No |
+| [AniList](https://anilist.co) | Manga and light novels — covers, genres, volume counts. A catalogue of *works*, not editions for sale | No |
+| [Internet Archive](https://archive.org) | Millions of scanned and public-domain texts, free to read or borrow | No |
 | [วิกิซอร์ซ / Thai Wikisource](https://th.wikisource.org) | Public-domain Thai literature — Sunthorn Phu, royal chronicles, old law codes — free in full | No |
 | [Project Gutenberg](https://gutendex.com) via Gutendex | Public-domain works, mostly English (off by default) | No |
 
@@ -178,8 +180,10 @@ filter what is already on screen, and a line under the status says how many book
 ### Sources follow the format
 
 Picking a รูปแบบ switches off the shops that cannot serve it, so the row never offers a
-pointless search: meb and วิกิซอร์ซ and Gutenberg sell only e-books, Kinokuniya only printed
-stock, SE-ED and Open Library carry both. Only sources switched off this way are switched back
+pointless search: meb, วิกิซอร์ซ, Gutenberg and Internet Archive are digital only, Kinokuniya is
+print only, SE-ED and Open Library carry both. AniList switches off for either, because a
+catalogue entry is a work rather than an edition and has no รูปแบบ to match — its cards are
+badged *ซีรีส์* with a volume count instead. Only sources switched off this way are switched back
 on, so neither the page's defaults nor a shop you unticked get overridden.
 
 ## One card per book, not per printing
@@ -198,6 +202,21 @@ had one. Two things are deliberately **not** merged:
 
 This is why the app does not simply keep one result per shop, which was the obvious fix: that
 would have hidden real volumes of a series behind whichever one happened to be first.
+
+### Why AniList and Internet Archive
+
+Thai bookshop search is poor at manga and light novels: the volumes are listed individually, the
+series itself has no entry, and a romanised title often misses entirely. AniList knows both
+formats properly and tells them apart — searching *Spice and Wolf* returns the manga and the
+light novel as separate results — so it is used to find the work, and the links panel is what
+takes you to a shop that stocks it.
+
+Both are public, keyless and send CORS headers, so unlike the shops they are called straight
+from the page with no proxy, and work the same on a phone.
+
+Thai e-book and web-novel platforms were looked at too — Hytexts, Ookbee, Fictionlog, ReadAWrite
+and Dek-D. None exposes a guessable API, so each would need the same reverse-engineering meb
+took. They are not ruled out, only not done.
 
 ## Shop availability
 
