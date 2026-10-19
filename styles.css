@@ -478,7 +478,15 @@ main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
 }
 .card-author, .card-meta { color: var(--muted); font-size: 13px; margin: 0; line-height: 1.5; }
 .card-meta { margin-top: 5px; }
-.badges { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 9px; }
+.badges {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  align-items: center;
+  align-content: flex-start;
+  margin-top: 9px;
+}
+.badge { flex: 0 0 auto; white-space: nowrap; }
 .badge {
   font-size: 11.5px;
   font-weight: 600;
@@ -492,12 +500,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
 .badge.free { background: var(--free-soft); color: var(--free); }
 .badge.thai { background: var(--thai-soft); color: var(--thai); }
 .badge.status { background: var(--accent-soft); color: var(--accent); }
-.badge.format {
-  background: transparent;
-  color: var(--muted);
-  border: 1px solid var(--line);
-  padding: 1.5px 7px;
-}
+.badge.format { color: var(--muted); }
 
 .card-actions {
   border-top: 1px solid var(--line);

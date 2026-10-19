@@ -350,6 +350,12 @@ width now.
 Badges became outlines rather than filled chips. Four filled badges per card competed with the
 title and the cover for attention, when their job is to be glanceable, not loud.
 
+Their sizes were also uneven, for two separate reasons. Genre and format tags kept a smaller
+padding from an earlier revision, so they sat 2px shorter than the status and source tags beside
+them. And a wrapped flex container stretches its lines to fill spare height, so on a card whose
+tags ran to two lines the first line grew to 46px while the second stayed at 26px. Every tag is
+now one height, and a long shop name no longer shrinks or breaks.
+
 ## Look and feel
 
 The interface is in Thai. Two controls sit in the top right:
