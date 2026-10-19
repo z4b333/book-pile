@@ -891,6 +891,7 @@ function cardHTML(book, mode) {
       : isThai(book) ? '<span class="badge thai">ไทย</span>' : '',
     isFree(book) ? '<span class="badge free">ฟรี</span>' : '',
     mode === 'library' ? `<span class="badge status">${esc(STATUSES[book.status] || book.status)}</span>` : '',
+    book.note ? '<span class="badge note-badge" title="มีโน้ต">📝 โน้ต</span>' : '',
     ...(mode === 'library' ? (book.collections || []) : [])
       .map((c) => `<span class="badge collection">${esc(c)}</span>`),
     ...(book.sources || []).map((s) => `<span class="badge">${esc(s)}</span>`),
@@ -902,6 +903,8 @@ function cardHTML(book, mode) {
            `<option value="${k}"${book.status === k ? ' selected' : ''}>${v}</option>`).join('')}
        </select>
        <span class="spacer"></span>
+       <button class="btn small${book.note ? ' has-note' : ''}" data-act="note-open"
+               data-id="${esc(book.id)}">${book.note ? '📝 แก้โน้ต' : '📝 เพิ่มโน้ต'}</button>
        <button class="btn small" data-act="open" data-id="${esc(book.id)}">ลิงก์</button>
        <button class="btn small ghost" data-act="remove" data-id="${esc(book.id)}">เอาออก</button>`
     : `<button class="btn small primary" data-act="save" data-id="${esc(book.id)}" ${saved ? 'disabled' : ''}>
@@ -917,7 +920,8 @@ function cardHTML(book, mode) {
         <h3 class="card-title">${esc(book.title)}</h3>
         <p class="card-author">${esc((book.authors || []).join(', ') || 'ไม่ทราบผู้แต่ง')}</p>
         ${metaLine(book) ? `<p class="card-meta">${esc(metaLine(book))}</p>` : ''}
-        ${book.note ? `<p class="card-meta">📝 ${esc(book.note)}</p>` : ''}
+        ${book.note ? `<p class="card-meta note-preview" title="${esc(book.note)}">📝 ${
+          esc(book.note.length > 70 ? `${book.note.slice(0, 70)}…` : book.note)}</p>` : ''}
         <div class="badges">${badges}</div>
       </div>
     </button>
@@ -1021,7 +1025,8 @@ function renderLibrary() {
   const term = slug($('#library-filter').value);
   const sort = $('#library-sort').value;
 
-  let list = library.filter((b) => (activeStatus === 'all' || b.status === activeStatus)
+  let list = library.filter((b) => (activeStatus === 'all' || b.status === activeStatus
+      || (activeStatus === 'noted' && b.note))
     && (activeCollection === null || (b.collections || []).includes(activeCollection)));
   if (term) {
     list = list.filter((b) => {
@@ -1037,6 +1042,7 @@ function renderLibrary() {
 
   const counts = { all: library.length, buy: 0, download: 0, have: 0 };
   for (const b of library) if (b.status in counts) counts[b.status]++;
+  counts.noted = library.filter((b) => b.note).length;
   $$('#status-filters .filter').forEach((btn) => {
     btn.querySelector('span').textContent = counts[btn.dataset.status] || '';
   });
@@ -1122,7 +1128,7 @@ function renderCollections() {
 
 /* ----------------------------------------------------------------- dialog */
 
-function openDialog(id) {
+function openDialog(id, focusNote = false) {
   const book = findBook(id);
   if (!book) return;
   const saved = inLibrary(book.id);
@@ -1190,6 +1196,14 @@ function openDialog(id) {
     </div>`;
 
   $('#book-dialog').showModal();
+  if (focusNote) {
+    const field = $('#dialog-body .note-field');
+    if (field) {
+      field.focus();
+      field.setSelectionRange(field.value.length, field.value.length);
+      field.scrollIntoView({ block: 'center' });
+    }
+  }
   verifyShops(book, ++dialogToken);
 }
 
@@ -1515,6 +1529,7 @@ document.addEventListener('click', (e) => {
     if (name) { toggleCollection(id, name); openDialog(id); }
     return;
   }
+  if (act === 'note-open') { openDialog(id, true); return; }
   if (act === 'close') $('#book-dialog').close();
   if (act === 'open') openDialog(id);
   if (act === 'save') {

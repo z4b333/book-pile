@@ -190,6 +190,20 @@ catalogue entry is a work rather than an edition and has no รูปแบบ t
 badged *ซีรีส์* with a volume count instead. Only sources switched off this way are switched back
 on, so neither the page's defaults nor a shop you unticked get overridden.
 
+## Notes
+
+Every saved book takes a free-text note — which edition, the price you saw, who recommended it.
+Notes save as you type, and the library's text filter searches them alongside titles and
+authors.
+
+A book with a note shows a **📝 โน้ต** badge, and its card carries a two-line preview with the
+full text on hover; the **📝 มีโน้ต** filter narrows the pile to annotated books. The note button
+on each card opens the dialog with the field already focused, so adding a note does not mean
+hunting for it.
+
+The preview is clamped deliberately. Before, the whole note was printed into the card, so one
+long note stretched its card out of line with the rest of the grid.
+
 ## Collections
 
 Status says where a book is in the buying process; a **collection** says which shelf it belongs

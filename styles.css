@@ -548,6 +548,18 @@ main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
   box-shadow: 0 0 0 3px var(--accent-ring);
 }
 
+/* A note is worth announcing, so it gets a badge; the text itself is only a
+   one-line preview, since a long note would otherwise swamp the card. */
+.badge.note-badge { background: var(--accent-soft); color: var(--accent); text-transform: none; }
+.note-preview {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-style: italic;
+}
+.btn.small.has-note { border-color: var(--accent); color: var(--accent); }
+
 .collections-row { margin: -6px 0 18px; }
 .filter.add-collection { border-style: dashed; }
 .badge.collection { background: var(--accent-soft); color: var(--accent); text-transform: none; }
