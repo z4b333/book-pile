@@ -252,10 +252,16 @@ function seriesBase(title) {
     return 20 loosely-related titles rather than nothing, so "Assassination
     Classroom" comes back with "Google Classroom". Require the whole phrase,
     or every word of a multi-word query, somewhere in title or author. */
-function matchesQuery(book, term) {
+function matchesQuery(book, term, field = 'all') {
   const q = slug(term);
   if (!q) return true;
-  const hay = slug([book.title, ...(book.authors || [])].join(' '));
+  const authors = book.authors || [];
+  // Author search falls back to the title for shops that publish no author
+  // field at all, where the name often appears in the title anyway.
+  const parts = field === 'title' ? [book.title]
+    : field === 'author' ? (authors.length ? authors : [book.title])
+    : [book.title, ...authors];
+  const hay = slug(parts.join(' '));
   if (hay.includes(q)) return true;
   const words = q.split(' ').filter(Boolean);
   return words.length > 1 && words.every((w) => hay.includes(w));
@@ -342,9 +348,13 @@ function decodeEntities(str) {
   return area.value;
 }
 
-async function searchMeb({ term }, signal) {
+const MEB_FILTER_TYPE = { title: 'title', author: 'author' };
+
+async function searchMeb({ field, term }, signal) {
   const payload = {
-    token: '', filter: { type: 'all', value: term }, sort: { by: 'date', type: 'desc' },
+    token: '',
+    filter: { type: MEB_FILTER_TYPE[field] || 'all', value: term },
+    sort: { by: 'date', type: 'desc' },
     exact_keyword: '', price: 'all', series_id: '', bundle_type: '',
     result_per_page: 40, page_no: 1, app_id: 'ASK', app_platform: 'WEB',
     content_type_list: null, debug_elastic: 1, category_group_id: '',
@@ -438,7 +448,7 @@ async function searchKinokuniya({ field, term }, signal) {
     };
   }).filter((b) => b.title);
 
-  return field === 'isbn' ? books : books.filter((b) => matchesQuery(b, term));
+  return field === 'isbn' ? books : books.filter((b) => matchesQuery(b, term, field));
 }
 
 /** SE-ED — the shop's own search API, the same one its website calls. Returns
@@ -499,7 +509,7 @@ async function searchSeed({ field, term }, signal) {
   }
   const books = (data.products || []).map(seedProduct).filter(Boolean);
   // An ISBN search already matched on SKU, so only keyword results need this.
-  return field === 'isbn' ? books : books.filter((b) => matchesQuery(b, term));
+  return field === 'isbn' ? books : books.filter((b) => matchesQuery(b, term, field));
 }
 
 /* ----------------------------------------------------- source: Gutendex */
@@ -634,6 +644,13 @@ function formatsOf(book) {
 const THAI_SCRIPT = /[฀-๿]/;
 
 /** Thai-language, by the source's own metadata or by the title's script. */
+/** Any source can supply a free link, and a book saved or imported long ago
+    may predate these flags, so all three are derived at render time rather
+    than stamped onto search results only. */
+function isFree(book) {
+  return (book.freeLinks || []).length > 0;
+}
+
 function isThai(book) {
   return (book.languages || []).some((l) => l === 'tha' || l === 'th')
     || THAI_SCRIPT.test(book.title || '');
@@ -755,12 +772,7 @@ async function runSearch(query, sourceKeys) {
         const id = fingerprint(book);
         merged.set(id, merged.has(id) ? mergeBooks(merged.get(id), book) : { ...book, id });
       }
-      results = [...merged.values()].map((b) => ({
-        ...b,
-        free: (b.freeLinks || []).length > 0,
-        thai: isThai(b),
-        translated: isTranslated(b),
-      }));
+      results = [...merged.values()];
     } catch (err) {
       if (seq !== searchSeq || err.name === 'AbortError') return;
       failed.push(`${name} ${FAIL_REASON[err.code] || 'ใช้งานไม่ได้'}`);
@@ -775,8 +787,8 @@ async function runSearch(query, sourceKeys) {
 function report(pending, failed) {
   const parts = [];
   if (results.length) {
-    const free = results.filter((b) => b.free).length;
-    const thai = results.filter((b) => b.thai).length;
+    const free = results.filter(isFree).length;
+    const thai = results.filter(isThai).length;
     parts.push(`${results.length} เล่ม`);
     if (thai) parts.push(`${thai} ภาษาไทย`);
     if (free) parts.push(`อ่าน/โหลดฟรี ${free} เล่ม`);
@@ -875,9 +887,9 @@ function cardHTML(book, mode) {
   const saved = inLibrary(book.id);
   const badges = [
     ...formatsOf(book).map((f) => `<span class="badge format">${FORMAT_LABELS[f]}</span>`),
-    book.translated ? '<span class="badge thai">แปลไทย</span>'
-      : book.thai ? '<span class="badge thai">ไทย</span>' : '',
-    book.free ? '<span class="badge free">ฟรี</span>' : '',
+    isTranslated(book) ? '<span class="badge thai">แปลไทย</span>'
+      : isThai(book) ? '<span class="badge thai">ไทย</span>' : '',
+    isFree(book) ? '<span class="badge free">ฟรี</span>' : '',
     mode === 'library' ? `<span class="badge status">${esc(STATUSES[book.status] || book.status)}</span>` : '',
     ...(book.sources || []).map((s) => `<span class="badge">${esc(s)}</span>`),
   ].join('');
@@ -891,7 +903,7 @@ function cardHTML(book, mode) {
        <button class="btn small" data-act="open" data-id="${esc(book.id)}">ลิงก์</button>
        <button class="btn small ghost" data-act="remove" data-id="${esc(book.id)}">เอาออก</button>`
     : `<button class="btn small primary" data-act="save" data-id="${esc(book.id)}" ${saved ? 'disabled' : ''}>
-         ${saved ? 'อยู่ในกองแล้ว' : (book.free ? 'เก็บไว้โหลด' : 'เก็บไว้ซื้อ')}
+         ${saved ? 'อยู่ในกองแล้ว' : (isFree(book) ? 'เก็บไว้โหลด' : 'เก็บไว้ซื้อ')}
        </button>
        <span class="spacer"></span>
        <button class="btn small" data-act="open" data-id="${esc(book.id)}">หาซื้อที่ไหน</button>`;
@@ -914,7 +926,7 @@ function cardHTML(book, mode) {
 const chosenFormats = () => $$('input[name="format"]:checked').map((i) => i.value);
 
 function renderResults() {
-  let list = $('#free-only').checked ? results.filter((b) => b.free) : results;
+  let list = $('#free-only').checked ? results.filter(isFree) : results;
   // No format chosen means no opinion, so everything stays.
   const wanted = chosenFormats();
   if (wanted.length) {
@@ -922,7 +934,7 @@ function renderResults() {
   }
   // In Thai scope, non-Thai hits still matter — a Thai edition may exist under
   // the same title — so they sink to the bottom rather than disappearing.
-  if (searchLang() === 'th') list = [...list].sort((a, b) => Number(b.thai) - Number(a.thai));
+  if (searchLang() === 'th') list = [...list].sort((a, b) => Number(isThai(b)) - Number(isThai(a)));
   $('#results').innerHTML = list.map((b) => cardHTML(b, 'search')).join('');
 }
 
@@ -1023,8 +1035,13 @@ function openDialog(id) {
     </div>`;
 
   $('#book-dialog').showModal();
-  verifyShops(book);
+  verifyShops(book, ++dialogToken);
 }
+
+/* Lookups are slow enough that a second book can be opened before the first
+   one's results arrive. Each dialog takes a token, and late results for a
+   dialog that is no longer on screen are dropped. */
+let dialogToken = 0;
 
 /* ------------------------------------------------- live shop availability */
 
@@ -1041,7 +1058,7 @@ const CHECKABLE = {
 /* One search per shop answers both questions a dialog asks: does this shop
    carry the book, and what else is in the series. Searching the series base
    rather than the exact title returns the sibling volumes too. */
-async function verifyShops(book) {
+async function verifyShops(book, token) {
   const base = seriesBase(book.title) || book.title;
   const rows = [...document.querySelectorAll('#dialog-body .link-row.state-check')];
   const cached = shopChecks.get(book.id) || (shopChecks.set(book.id, {}), shopChecks.get(book.id));
@@ -1057,6 +1074,8 @@ async function verifyShops(book) {
     }
     return [key, cached[key]];
   }));
+
+  if (token !== dialogToken) return;
 
   for (const row of rows) {
     if (!row.isConnected) continue;
@@ -1076,7 +1095,7 @@ async function verifyShops(book) {
     }
   }
 
-  renderSeries(book, found.flatMap(([, hits]) => hits || []));
+  renderSeries(book, found.flatMap(([, hits]) => hits || []), token);
 }
 
 /* --------------------------------------------------------- same series */
@@ -1085,7 +1104,8 @@ async function verifyShops(book) {
 // reachable for when one is clicked.
 const relatedBooks = new Map();
 
-function renderSeries(book, candidates) {
+function renderSeries(book, candidates, token) {
+  if (token !== dialogToken) return;
   const slot = document.querySelector('#dialog-body .series-slot');
   if (!slot || !slot.isConnected) return;
 
@@ -1299,7 +1319,7 @@ document.addEventListener('click', (e) => {
   if (act === 'open') openDialog(id);
   if (act === 'save') {
     const book = findBook(id);
-    if (book) saveBook(book, book.free ? 'download' : 'buy');
+    if (book) saveBook(book, isFree(book) ? 'download' : 'buy');
     if ($('#book-dialog').open) openDialog(id);
   }
   if (act === 'remove') {
