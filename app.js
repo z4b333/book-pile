@@ -49,9 +49,12 @@ const ACCENTS = [
 
 const prefs = (() => {
   try {
-    return { accent: 45, theme: 'auto', seenGuide: false, ...JSON.parse(readStored(PREFS_KEY) || '{}') };
+    return {
+      accent: 45, theme: 'auto', seenGuide: false, collections: [],
+      ...JSON.parse(readStored(PREFS_KEY) || '{}'),
+    };
   } catch {
-    return { accent: 45, theme: 'auto', seenGuide: false };
+    return { accent: 45, theme: 'auto', seenGuide: false, collections: [] };
   }
 })();
 
@@ -888,6 +891,8 @@ function cardHTML(book, mode) {
       : isThai(book) ? '<span class="badge thai">ไทย</span>' : '',
     isFree(book) ? '<span class="badge free">ฟรี</span>' : '',
     mode === 'library' ? `<span class="badge status">${esc(STATUSES[book.status] || book.status)}</span>` : '',
+    ...(mode === 'library' ? (book.collections || []) : [])
+      .map((c) => `<span class="badge collection">${esc(c)}</span>`),
     ...(book.sources || []).map((s) => `<span class="badge">${esc(s)}</span>`),
   ].join('');
 
@@ -1016,7 +1021,8 @@ function renderLibrary() {
   const term = slug($('#library-filter').value);
   const sort = $('#library-sort').value;
 
-  let list = library.filter((b) => activeStatus === 'all' || b.status === activeStatus);
+  let list = library.filter((b) => (activeStatus === 'all' || b.status === activeStatus)
+    && (activeCollection === null || (b.collections || []).includes(activeCollection)));
   if (term) {
     list = list.filter((b) => {
       const formats = bookTags(b).join(' ');
@@ -1045,12 +1051,73 @@ function renderLibrary() {
   } else {
     empty.hidden = true;
   }
+  renderCollections();
   $('#library').innerHTML = list.map((b) => cardHTML(b, 'library')).join('');
 }
 
 function renderAll() {
   renderResults();
   renderLibrary();
+}
+
+/* ------------------------------------------------------- collections */
+
+/* A book's status says where it is in the buying process; a collection says
+   which shelf it belongs on. They are separate axes, and a book can sit on
+   several shelves at once. The names are persisted separately from the books,
+   so a collection you have emptied does not quietly disappear. */
+let activeCollection = null;
+
+function allCollections() {
+  const used = library.flatMap((b) => b.collections || []);
+  return [...new Set([...(prefs.collections || []), ...used])]
+    .sort((a, b) => a.localeCompare(b, 'th'));
+}
+
+function createCollection(name) {
+  const clean = String(name || '').trim().slice(0, 40);
+  if (!clean) return null;
+  if (!prefs.collections.includes(clean)) {
+    prefs.collections = [...prefs.collections, clean];
+    applyPrefs();
+  }
+  return clean;
+}
+
+function toggleCollection(bookId, name) {
+  const book = library.find((b) => b.id === bookId);
+  if (!book) return;
+  const current = book.collections || [];
+  book.collections = current.includes(name)
+    ? current.filter((c) => c !== name)
+    : [...current, name];
+  save();
+  renderAll();
+}
+
+function deleteCollection(name) {
+  prefs.collections = (prefs.collections || []).filter((c) => c !== name);
+  applyPrefs();
+  library.forEach((b) => {
+    if (b.collections?.includes(name)) b.collections = b.collections.filter((c) => c !== name);
+  });
+  save();
+  if (activeCollection === name) activeCollection = null;
+  renderAll();
+  toast(`ลบคอลเลกชัน “${name}” แล้ว`);
+}
+
+function renderCollections() {
+  const names = allCollections();
+  const counts = Object.fromEntries(names.map((n) =>
+    [n, library.filter((b) => (b.collections || []).includes(n)).length]));
+
+  $('#collections-row').innerHTML = `
+    <button class="filter${activeCollection === null ? ' active' : ''}" data-collection="">ทุกคอลเลกชัน</button>
+    ${names.map((n) => `<button class="filter${activeCollection === n ? ' active' : ''}"
+         data-collection="${esc(n)}">${esc(n)} <span>${counts[n]}</span></button>`).join('')}
+    <button class="filter add-collection" data-collection-new>+ สร้างคอลเลกชัน</button>
+    ${activeCollection ? `<button class="btn small ghost" data-collection-delete="${esc(activeCollection)}">ลบคอลเลกชันนี้</button>` : ''}`;
 }
 
 /* ----------------------------------------------------------------- dialog */
@@ -1101,6 +1168,14 @@ function openDialog(id) {
         <span class="muted-count">${manual.length}</span></p>
       <div class="links">${manual.map(linkRow).join('')}</div>` : ''}
     ${saved ? `
+      <p class="links-title">คอลเลกชัน</p>
+      <div class="collection-picker">
+        ${allCollections().map((c) => `
+          <button class="chip ghost-chip${(book.collections || []).includes(c) ? ' on' : ''}"
+                  data-act="toggle-collection" data-id="${esc(book.id)}" data-name="${esc(c)}"
+                  type="button">${esc(c)}</button>`).join('')}
+        <button class="chip ghost-chip" data-act="new-collection" data-id="${esc(book.id)}" type="button">+ ใหม่</button>
+      </div>
       <p class="links-title">โน้ตของฉัน</p>
       <textarea class="note-field" data-act="note" data-id="${esc(book.id)}"
         placeholder="ฉบับไหน ราคาที่เห็น ใครแนะนำ…">${esc(book.note || '')}</textarea>` : ''}
@@ -1221,7 +1296,7 @@ function renderSeries(book, candidates, token) {
 
 function exportLibrary() {
   if (!library.length) return toast('ยังไม่มีอะไรให้ส่งออก');
-  const blob = new Blob([JSON.stringify({ app: 'bookpile', version: 1, books: library }, null, 2)],
+  const blob = new Blob([JSON.stringify({ app: 'bookpile', version: 1, collections: prefs.collections, books: library }, null, 2)],
     { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -1236,6 +1311,8 @@ async function importLibrary(file) {
     const data = JSON.parse(await file.text());
     const books = Array.isArray(data) ? data : data.books;
     if (!Array.isArray(books)) throw new Error('bad shape');
+    // Carry over collection names too, so an emptied shelf survives the trip.
+    for (const name of data.collections || []) createCollection(name);
     let added = 0;
     for (const b of books) {
       if (!b?.title) continue;
@@ -1378,6 +1455,29 @@ $('#import-input').addEventListener('change', (e) => {
   e.target.value = '';
 });
 
+$('#collections-row').addEventListener('click', (e) => {
+  const del = e.target.closest('[data-collection-delete]');
+  if (del) {
+    const name = del.dataset.collectionDelete;
+    const count = library.filter((b) => (b.collections || []).includes(name)).length;
+    // Deleting a shelf must not delete the books standing on it.
+    if (confirm(`ลบคอลเลกชัน “${name}”?
+หนังสือ ${count} เล่มจะยังอยู่ในกองดอง เพียงแต่ไม่อยู่ในคอลเลกชันนี้`)) {
+      deleteCollection(name);
+    }
+    return;
+  }
+  if (e.target.closest('[data-collection-new]')) {
+    const name = createCollection(prompt('ชื่อคอลเลกชันใหม่'));
+    if (name) { activeCollection = name; renderAll(); }
+    return;
+  }
+  const btn = e.target.closest('[data-collection]');
+  if (!btn) return;
+  activeCollection = btn.dataset.collection || null;
+  renderLibrary();
+});
+
 $('#status-filters').addEventListener('click', (e) => {
   const btn = e.target.closest('.filter');
   if (!btn) return;
@@ -1405,6 +1505,16 @@ document.addEventListener('click', (e) => {
   if (!el || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') return;
   const { act, id } = el.dataset;
 
+  if (act === 'toggle-collection') {
+    toggleCollection(id, el.dataset.name);
+    openDialog(id);
+    return;
+  }
+  if (act === 'new-collection') {
+    const name = createCollection(prompt('ชื่อคอลเลกชันใหม่'));
+    if (name) { toggleCollection(id, name); openDialog(id); }
+    return;
+  }
   if (act === 'close') $('#book-dialog').close();
   if (act === 'open') openDialog(id);
   if (act === 'save') {

@@ -155,8 +155,8 @@ Books. They use the ISBN when one is known, so they land on the right edition �
 them can be checked either, so they carry the same ค้นเอง flag as the Thai shops we cannot
 query. Barnes & Noble was dropped, since it does not realistically serve Thailand.
 
-**The library** stores books under three statuses — *To buy*, *To download*, *Got it* — each with
-a note. Filter, sort, export to JSON, import it back.
+**The library** stores books under three statuses — *รอซื้อ*, *รอโหลด*, *ได้แล้ว* — each with a
+note. Filter, sort, export to JSON, import it back.
 
 ## Filters
 
@@ -189,6 +189,20 @@ pointless search: meb is digital only, Kinokuniya print only, SE-ED and Open Lib
 catalogue entry is a work rather than an edition and has no รูปแบบ to match — its cards are
 badged *ซีรีส์* with a volume count instead. Only sources switched off this way are switched back
 on, so neither the page's defaults nor a shop you unticked get overridden.
+
+## Collections
+
+Status says where a book is in the buying process; a **collection** says which shelf it belongs
+on. They are separate axes, and a book can sit on several shelves at once — a manga volume can
+be in both *มังงะที่อยากได้* and *อ่านปีนี้*.
+
+Collections are made from a book's own dialog or from the row above the library, and the row
+filters the pile down to one shelf. Names are stored separately from the books, so a collection
+you have emptied does not quietly disappear, and they travel with an export.
+
+Deleting a collection removes the shelf, not the books on it. The confirmation says so and
+names how many are affected, because the opposite reading would be an easy and expensive
+mistake.
 
 ## Arranging results
 

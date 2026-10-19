@@ -548,6 +548,17 @@ main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
   box-shadow: 0 0 0 3px var(--accent-ring);
 }
 
+.collections-row { margin: -6px 0 18px; }
+.filter.add-collection { border-style: dashed; }
+.badge.collection { background: var(--accent-soft); color: var(--accent); text-transform: none; }
+.collection-picker { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 18px; }
+.collection-picker .chip.on {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.collection-picker .chip.on:hover { background: var(--accent-hover); color: var(--on-accent); }
+
 .empty { text-align: center; padding: 76px 16px; color: var(--muted); }
 .empty strong { display: block; color: var(--text); font-size: 18px; font-weight: 600; margin-bottom: 7px; }
 
