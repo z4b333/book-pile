@@ -176,8 +176,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .appearance { display: flex; align-items: center; gap: 6px; }
 .icon-btn {
-  width: 34px;
-  height: 34px;
+  width: 38px;
+  height: 38px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -317,7 +317,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
   padding: 9px 21px;
 }
 .btn.primary:hover { background: var(--accent-hover); }
-.btn.small { padding: 6px 13px; font-size: 13px; }
+.btn.small { padding: 8px 14px; font-size: 13px; min-height: 36px; }
 .btn.ghost { background: none; border-color: transparent; color: var(--muted); }
 .btn.ghost:hover { background: var(--surface-2); color: var(--text); border-color: transparent; }
 .btn:disabled { opacity: .45; cursor: default; transform: none; }
@@ -345,7 +345,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
 .segmented input { position: absolute; opacity: 0; pointer-events: none; }
 .segmented span {
   display: block;
-  padding: 5px 15px;
+  padding: 8px 16px;
   border-radius: 99px;
   font-size: 13.5px;
   color: var(--muted);
@@ -363,10 +363,11 @@ main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 38px;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 99px;
-  padding: 5px 13px;
+  padding: 8px 14px;
   font-size: 13.5px;
   color: var(--muted);
   cursor: pointer;
@@ -451,27 +452,28 @@ main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
 }
 .card-text { min-width: 0; flex: 1; }
 .card-title {
-  font-weight: 600;
-  line-height: 1.4;
-  margin: 0 0 3px;
-  font-size: 14.5px;
+  font-weight: 650;
+  line-height: 1.45;
+  margin: 0 0 4px;
+  font-size: 15px;
   letter-spacing: -.005em;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.card-author, .card-meta { color: var(--muted); font-size: 12.5px; margin: 0; line-height: 1.5; }
+.card-author, .card-meta { color: var(--muted); font-size: 13px; margin: 0; line-height: 1.5; }
 .card-meta { margin-top: 5px; }
 .badges { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 9px; }
 .badge {
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-weight: 600;
   letter-spacing: .02em;
-  padding: 2.5px 8px;
+  padding: 3px 9px;
   border-radius: 99px;
-  background: var(--surface-2);
+  background: transparent;
   color: var(--muted);
+  border: 1px solid var(--line);
 }
 .badge.free { background: var(--free-soft); color: var(--free); }
 .badge.thai { background: var(--thai-soft); color: var(--thai); }
@@ -485,7 +487,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
 
 .card-actions {
   border-top: 1px solid var(--line);
-  padding: 10px 13px;
+  padding: 9px 12px;
   display: flex;
   gap: 7px;
   align-items: center;
@@ -519,7 +521,8 @@ main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
   background: transparent;
   border: 1px solid var(--line);
   border-radius: 99px;
-  padding: 7px 15px;
+  padding: 9px 16px;
+  min-height: 38px;
   cursor: pointer;
   font-size: 13.5px;
   color: var(--muted);
@@ -658,6 +661,7 @@ dialog::backdrop { background: oklch(15% 0.02 60 / 0.55); backdrop-filter: blur(
 
 /* The source list is right by default, so it folds away rather than taking a
    permanent row in an already tall filter stack. */
+.filter-fold summary,
 .sources summary {
   display: inline-flex;
   align-items: center;
@@ -667,7 +671,9 @@ dialog::backdrop { background: oklch(15% 0.02 60 / 0.55); backdrop-filter: blur(
   padding: 3px 0;
   width: fit-content;
 }
+.filter-fold summary::-webkit-details-marker,
 .sources summary::-webkit-details-marker { display: none; }
+.filter-fold summary::after,
 .sources summary::after {
   content: "";
   width: 6px;
@@ -677,8 +683,12 @@ dialog::backdrop { background: oklch(15% 0.02 60 / 0.55); backdrop-filter: blur(
   transform: rotate(45deg) translate(-1px, -1px);
   transition: transform .18s var(--ease);
 }
+.filter-fold[open] summary::after,
 .sources[open] summary::after { transform: rotate(-135deg) translate(-2px, -2px); }
+.filter-fold summary:hover .option-label,
 .sources summary:hover .option-label { color: var(--text); }
+.filter-fold[open] { margin-bottom: 4px; }
+.filter-fold summary { margin-bottom: 2px; }
 .source-count {
   font-size: 11.5px;
   color: var(--muted);
@@ -722,8 +732,10 @@ dialog::backdrop { background: oklch(15% 0.02 60 / 0.55); backdrop-filter: blur(
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  margin: 2px 0 6px;
-  font-size: 12.5px;
+  margin: 28px 0 6px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
 }
 .manual-label { color: var(--muted); }
 .manual-link {

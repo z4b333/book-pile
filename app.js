@@ -802,7 +802,7 @@ function showManualShops(term) {
   if (!term) { box.hidden = true; return; }
   const q = encodeURIComponent(term);
   box.hidden = false;
-  box.innerHTML = '<span class="manual-label">ร้านที่ตรวจให้ไม่ได้ — ต้องค้นเอง</span>'
+  box.innerHTML = '<span class="manual-label">ไม่เจอที่ต้องการ? ร้านเหล่านี้ตรวจให้ไม่ได้ ลองค้นเอง</span>'
     + MANUAL_SHOPS.map((shop) =>
       `<a class="manual-link" href="${esc(shop.url(q))}" target="_blank" rel="noopener noreferrer">${shop.label}</a>`
     ).join('');
@@ -929,8 +929,8 @@ function cardHTML(book, mode) {
   </article>`;
 }
 
-const chosenGenres = () => $$('input[name="genre"]:checked').map((i) => i.value);
-const chosenMedia = () => $('input[name="media"]:checked')?.value || 'any';
+function chosenGenres() { return $$('input[name="genre"]:checked').map((i) => i.value); }
+function chosenMedia() { return $('input[name="media"]:checked')?.value || 'any'; }
 
 /* ---------------------------------------------------------- arranging */
 
@@ -996,6 +996,20 @@ function renderResults() {
 /* Keep the source row honest about the chosen รูปแบบ. Only sources this
    function switched off are switched back on, so neither the page's own
    defaults nor a shop the reader unticked get overridden. */
+/* On a phone the filter rows pushed the first result 636px down an 812px
+   screen, so they fold away behind a summary that reports anything narrowed.
+   On a wider screen there is room, so they stay open. */
+function describeFilters() {
+  const bits = [];
+  const lang = searchLang();
+  if (lang !== 'any') bits.push(LANG_LABELS[lang]);
+  bits.push(...chosenGenres().map((g) => GENRE_LABELS[g]));
+  const media = chosenMedia();
+  if (media !== 'any') bits.push(MEDIA_LABELS[media]);
+  if ($('#free-only').checked) bits.push('ฟรี');
+  $('#filter-count').textContent = bits.length ? bits.join(' · ') : 'ทั้งหมด';
+}
+
 function updateSourceCount() {
   const boxes = $$('input[name="source"]');
   const on = boxes.filter((b) => b.checked).length;
@@ -1018,6 +1032,7 @@ function syncSourcesToMedia() {
     }
   });
   updateSourceCount();
+  describeFilters();
 }
 
 
@@ -1396,6 +1411,12 @@ document.addEventListener('keydown', (e) => {
 
 buildSwatches();
 syncSourcesToMedia();
+// Wide screens have room to show the filters; phones do not.
+$('#filter-fold').open = window.matchMedia('(min-width: 721px)').matches;
+['lang', 'genre', 'media'].forEach((name) => $$(`input[name="${name}"]`)
+  .forEach((input) => input.addEventListener('change', describeFilters)));
+$('#free-only').addEventListener('change', describeFilters);
+describeFilters();
 
 /* ------------------------------------------------------------ the guide */
 
@@ -1441,7 +1462,9 @@ $('#search-form').addEventListener('submit', (e) => {
   runSearch({ term, field: $('#search-field').value, lang: searchLang() }, sources);
 });
 
-const searchLang = () => $('input[name="lang"]:checked')?.value || 'any';
+// Declared rather than assigned: describeFilters() runs during start-up,
+// before this point in the file is reached.
+function searchLang() { return $('input[name="lang"]:checked')?.value || 'any'; }
 
 $$('input[name="lang"]').forEach((radio) => radio.addEventListener('change', () => {
   // วิกิซอร์ซ only holds Thai texts, so it follows the language scope.

@@ -318,6 +318,27 @@ explanation cannot be lost by clicking the wrong thing.
 The dialog scrolls, and its footer is pinned to the bottom, because the guide is taller than a
 phone screen and the checkbox would otherwise sit below the fold.
 
+## Phone-first layout
+
+A design pass measured what a phone actually shows. The filter rows had pushed the first book
+**636px down an 812px screen** — you scrolled past a whole screen of controls before seeing a
+result. Three changes brought that to **360px**, so two books are visible without scrolling:
+
+- **ภาษา, ประเภท and รูปแบบ fold** behind a single *ตัวกรอง* summary that names whatever is
+  narrowed ("ไทย · การ์ตูน"), so the state stays legible while collapsed. Screens 721px and wider
+  have the room, so they open by default.
+- **The ค้นเอง shop row moved below the results.** "Didn't find it? try these" is a fallback, and
+  it was sitting above the thing it is a fallback for.
+- Spacing was tightened around the status and sort rows.
+
+Touch targets were lifted so nothing interactive is under 36px — the smallest was 33px. The type
+scale had five sizes inside a 4px band, which reads as muddle rather than hierarchy; the small
+end was raised, which also suits Thai, whose vowel marks sit above and below the line and need
+more room than Latin at the same nominal size.
+
+Badges became outlines rather than filled chips. Four filled badges per card competed with the
+title and the cover for attention, when their job is to be glanceable, not loud.
+
 ## Look and feel
 
 The interface is in Thai. Two controls sit in the top right:

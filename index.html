@@ -63,6 +63,8 @@
       </form>
 
       <div class="options">
+        <details class="filter-fold" id="filter-fold">
+          <summary><span class="option-label">ตัวกรอง</span><span id="filter-count" class="source-count"></span></summary>
         <div class="option-row">
           <span class="option-label">ภาษา</span>
           <div class="segmented">
@@ -91,6 +93,8 @@
           <label class="chip free-chip"><input type="checkbox" id="free-only"><span>เฉพาะที่โหลดฟรี</span></label>
         </div>
 
+        </details>
+
         <details class="sources">
           <summary><span class="option-label">แหล่ง</span><span id="source-count" class="source-count"></span></summary>
           <div class="option-row source-row">
@@ -117,7 +121,6 @@
           <option value="source">จัดกลุ่มตามแหล่ง</option>
         </select>
       </div>
-      <div id="manual-shops" class="manual-shops" hidden></div>
 
       <div id="search-intro" class="intro">
         <h1>หาหนังสือ<br>เก็บไว้ซื้อทีหลัง</h1>
@@ -134,6 +137,7 @@
       </div>
 
       <div id="results" class="grid"></div>
+      <div id="manual-shops" class="manual-shops" hidden></div>
     </section>
 
     <!-- Library -->
