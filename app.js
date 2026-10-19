@@ -546,51 +546,21 @@ async function searchSeed({ field, term }, signal) {
   return field === 'isbn' ? books : books.filter((b) => matchesQuery(b, term, field));
 }
 
-/* ----------------------------------------------------- source: Gutendex */
-
-async function searchGutenberg({ field, term, lang }, signal) {
-  if (field === 'isbn') return [];
-  const url = `https://gutendex.com/books?search=${encodeURIComponent(term)}`
-    + (lang === 'th' ? '&languages=th' : lang === 'en' ? '&languages=en' : '');
-  const data = await getJSON(url, signal);
-  return (data.results || []).slice(0, 20).map((b) => {
-    const fmt = b.formats || {};
-    const pick = (type) => Object.entries(fmt)
-      .find(([k, v]) => k.startsWith(type) && !v.endsWith('.zip'))?.[1];
-    const freeLinks = [
-      pick('application/epub') && { label: 'Gutenberg (EPUB)', url: pick('application/epub'), kind: 'free download' },
-      pick('text/html') && { label: 'Gutenberg (read online)', url: pick('text/html'), kind: 'free read' },
-      pick('text/plain') && { label: 'Gutenberg (plain text)', url: pick('text/plain'), kind: 'free download' },
-    ].filter(Boolean);
-
-    return {
-      title: b.title,
-      authors: (b.authors || []).map((a) => a.name),
-      year: null,
-      publisher: 'Project Gutenberg',
-      pages: null,
-      description: null,
-      cover: fmt['image/jpeg'] || null,
-      isbn13: null,
-      isbn10: null,
-      subjects: (b.subjects || []).slice(0, 6),
-      price: null,
-      buyLink: null,
-      infoLink: `https://www.gutenberg.org/ebooks/${b.id}`,
-      languages: b.languages || [],
-      digital: true,
-      sources: ['Project Gutenberg'],
-      freeLinks,
-    };
-  });
-}
+/* What each source can actually supply. Picking a รูปแบบ switches off the
+   shops that cannot serve it — meb sells only e-books, Kinokuniya only
+   printed stock — so the source list never offers a pointless search. */
+const SOURCE_MEDIA = {
+  meb: ['ebook'],
+  seed: ['physical', 'ebook'],
+  kino: ['physical'],
+  openlibrary: ['physical', 'ebook'],
+};
 
 const SOURCES = {
   meb: { name: 'meb', run: searchMeb },
   seed: { name: 'SE-ED', run: searchSeed },
   kino: { name: 'Kinokuniya', run: searchKinokuniya },
   openlibrary: { name: 'Open Library', run: searchOpenLibrary },
-  gutenberg: { name: 'Project Gutenberg', run: searchGutenberg },
 };
 
 /* ------------------------------------------------------------ store links */
@@ -1017,6 +987,12 @@ function renderResults() {
 /* Keep the source row honest about the chosen รูปแบบ. Only sources this
    function switched off are switched back on, so neither the page's own
    defaults nor a shop the reader unticked get overridden. */
+function updateSourceCount() {
+  const boxes = $$('input[name="source"]');
+  const on = boxes.filter((b) => b.checked).length;
+  $('#source-count').textContent = `${on}/${boxes.length}`;
+}
+
 function syncSourcesToMedia() {
   const media = chosenMedia();
   $$('input[name="source"]').forEach((box) => {
@@ -1032,6 +1008,7 @@ function syncSourcesToMedia() {
       delete chip.dataset.autoOff;
     }
   });
+  updateSourceCount();
 }
 
 
@@ -1385,6 +1362,7 @@ $$('input[name="lang"]').forEach((radio) => radio.addEventListener('change', () 
 
 $('#free-only').addEventListener('change', renderResults);
 $('#results-sort').addEventListener('change', renderResults);
+$$('input[name="source"]').forEach((box) => box.addEventListener('change', updateSourceCount));
 $$('input[name="genre"]').forEach((box) => box.addEventListener('change', renderResults));
 $$('input[name="media"]').forEach((radio) => radio.addEventListener('change', () => {
   syncSourcesToMedia();

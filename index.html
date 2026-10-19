@@ -88,17 +88,18 @@
             <label><input type="radio" name="media" value="physical"><span>หนังสือเล่ม</span></label>
             <label><input type="radio" name="media" value="ebook"><span>อีบุ๊ก</span></label>
           </div>
+          <label class="chip free-chip"><input type="checkbox" id="free-only"><span>เฉพาะที่โหลดฟรี</span></label>
         </div>
 
-        <div class="option-row">
-          <span class="option-label">แหล่ง</span>
+        <details class="sources">
+          <summary><span class="option-label">แหล่ง</span><span id="source-count" class="source-count"></span></summary>
+          <div class="option-row source-row">
           <label class="chip"><input type="checkbox" name="source" value="meb" checked><span>meb</span></label>
           <label class="chip"><input type="checkbox" name="source" value="seed" checked><span>SE-ED</span></label>
           <label class="chip"><input type="checkbox" name="source" value="kino" checked><span>Kinokuniya</span></label>
           <label class="chip"><input type="checkbox" name="source" value="openlibrary" checked><span>Open Library</span></label>
-          <label class="chip"><input type="checkbox" name="source" value="gutenberg"><span>Gutenberg</span></label>
-          <label class="chip free-chip"><input type="checkbox" id="free-only"><span>เฉพาะที่โหลดฟรี</span></label>
-        </div>
+          </div>
+        </details>
       </div>
 
       <div id="search-status" class="status" aria-live="polite"></div>

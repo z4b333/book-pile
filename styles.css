@@ -633,6 +633,38 @@ dialog::backdrop { background: oklch(15% 0.02 60 / 0.55); backdrop-filter: blur(
 .link-row.state-manual { border-style: dashed; }
 .link-row.state-manual .kind { color: var(--accent); }
 
+/* The source list is right by default, so it folds away rather than taking a
+   permanent row in an already tall filter stack. */
+.sources summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  list-style: none;
+  padding: 3px 0;
+  width: fit-content;
+}
+.sources summary::-webkit-details-marker { display: none; }
+.sources summary::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(45deg) translate(-1px, -1px);
+  transition: transform .18s var(--ease);
+}
+.sources[open] summary::after { transform: rotate(-135deg) translate(-2px, -2px); }
+.sources summary:hover .option-label { color: var(--text); }
+.source-count {
+  font-size: 11.5px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-radius: 99px;
+  padding: 1px 8px;
+}
+.source-row { margin-top: 8px; }
+
 .results-bar {
   display: flex;
   align-items: center;

@@ -31,7 +31,6 @@ detects the helper is missing and routes shop requests through a public reader i
 | **SE-ED** (se-ed.com) | The shop's own search API — cover, title, price, year, and an ISBN in the SKU | No |
 | **Kinokuniya ไทย** (kinokuniya.co.th) | Shopify predictive search — English and imported titles, cover, price, publisher, ISBN | No |
 | [Open Library](https://openlibrary.org/developers/api) | Covers, ISBNs, borrow/read-free status. `language=tha` in Thai scope | No |
-| [Project Gutenberg](https://gutendex.com) via Gutendex | Public-domain works, mostly English (off by default) | No |
 
 Each source has a 12-second timeout and renders as soon as it lands, so one slow or
 rate-limited API never blocks the others. Duplicates collapse by ISBN, falling back to a
@@ -169,7 +168,7 @@ on guesses:
 | **ภาษา** | ไทย · อังกฤษ · อื่นๆ · ทั้งหมด | the source's language metadata, falling back to the title's script |
 | **ประเภท** | นิยาย · สารคดี · ไลท์โนเวล · การ์ตูน | each shop's own category text |
 | **รูปแบบ** | หนังสือเล่ม · อีบุ๊ก | each source states whether its edition is digital |
-| **แหล่ง** | the six sources | ticked by hand |
+| **แหล่ง** | the four sources | ticked by hand, folded away by default |
 
 Genre is resolved most-specific-first, so a graphic novel is การ์ตูน and never also นิยาย. A book
 whose categories say nothing useful gets **no** genre rather than a wrong one, which means it
@@ -179,11 +178,14 @@ Changing **ภาษา** re-runs the search, because it changes what the source
 Library's language parameter, Gutenberg's, and whether วิกิซอร์ซ is included). The other rows
 filter what is already on screen, and a line under the status says how many books are hidden.
 
+The **แหล่ง** row is collapsed behind a summary showing how many sources are active, because
+leaving every one on is right for almost everybody. It is kept rather than removed for one
+reason: each source adds latency, so switching off a slow one makes a search noticeably faster.
+
 ### Sources follow the format
 
 Picking a รูปแบบ switches off the shops that cannot serve it, so the row never offers a
-pointless search: meb, วิกิซอร์ซ, Gutenberg and Internet Archive are digital only, Kinokuniya is
-print only, SE-ED and Open Library carry both. AniList switches off for either, because a
+pointless search: meb is digital only, Kinokuniya print only, SE-ED and Open Library carry both. AniList switches off for either, because a
 catalogue entry is a work rather than an edition and has no รูปแบบ to match — its cards are
 badged *ซีรีส์* with a volume count instead. Only sources switched off this way are switched back
 on, so neither the page's defaults nor a shop you unticked get overridden.
