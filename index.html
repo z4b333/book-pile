@@ -103,6 +103,19 @@
 
       <div id="search-status" class="status" aria-live="polite"></div>
       <div id="filtered-note" class="filtered-note" hidden></div>
+
+      <div id="results-bar" class="results-bar" hidden>
+        <label for="results-sort">เรียงตาม</label>
+        <select id="results-sort">
+          <option value="relevance">ตรงที่สุด</option>
+          <option value="price-asc">ราคาน้อย → มาก</option>
+          <option value="price-desc">ราคามาก → น้อย</option>
+          <option value="title">ชื่อ ก–ฮ</option>
+          <option value="year-desc">ปีใหม่ → เก่า</option>
+          <option value="free">ฟรีก่อน</option>
+          <option value="source">จัดกลุ่มตามแหล่ง</option>
+        </select>
+      </div>
       <div id="manual-shops" class="manual-shops" hidden></div>
 
       <div id="search-intro" class="intro">

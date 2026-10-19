@@ -188,6 +188,23 @@ catalogue entry is a work rather than an edition and has no รูปแบบ t
 badged *ซีรีส์* with a volume count instead. Only sources switched off this way are switched back
 on, so neither the page's defaults nor a shop you unticked get overridden.
 
+## Arranging results
+
+A **เรียงตาม** control sits above the results:
+
+| Option | Orders by |
+| --- | --- |
+| ตรงที่สุด | the order the sources returned — the default |
+| ราคาน้อย → มาก / มาก → น้อย | price |
+| ชื่อ ก–ฮ | title, using Thai collation |
+| ปีใหม่ → เก่า | publication year |
+| ฟรีก่อน | books with a free link first |
+| จัดกลุ่มตามแหล่ง | source, then title |
+
+Books with nothing to sort on sink to the bottom rather than bunching at the top: an unpriced
+catalogue entry should not lead a cheapest-first list. Sorting works on a copy, so switching
+back to **ตรงที่สุด** restores the sources' own order rather than an approximation of it.
+
 ## One card per book, not per printing
 
 The same book is listed many times over — a paperback, a box set, a PDF, a reprint with a fresh

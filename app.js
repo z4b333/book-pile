@@ -953,6 +953,45 @@ function cardHTML(book, mode) {
 const chosenGenres = () => $$('input[name="genre"]:checked').map((i) => i.value);
 const chosenMedia = () => $('input[name="media"]:checked')?.value || 'any';
 
+/* ---------------------------------------------------------- arranging */
+
+/** Prices arrive as display strings like "฿1,449" — pull the number out. */
+function priceValue(book) {
+  const digits = String(book.price || '').replace(/[^\d.]/g, '');
+  const amount = Number(digits);
+  return digits && Number.isFinite(amount) ? amount : null;
+}
+
+/* Books with nothing to sort on sink rather than bunching at the top: an
+   unpriced catalogue entry should not lead a cheapest-first list. */
+function byMissingLast(get, direction = 1) {
+  return (a, b) => {
+    const x = get(a);
+    const y = get(b);
+    if (x === null && y === null) return 0;
+    if (x === null) return 1;
+    if (y === null) return -1;
+    return (x - y) * direction;
+  };
+}
+
+const RESULT_SORTS = {
+  relevance: null, // the order the sources returned
+  'price-asc': byMissingLast(priceValue, 1),
+  'price-desc': byMissingLast(priceValue, -1),
+  title: (a, b) => a.title.localeCompare(b.title, 'th'),
+  'year-desc': byMissingLast((b) => (b.year ? Number(b.year) : null), -1),
+  free: (a, b) => Number(isFree(b)) - Number(isFree(a)),
+  source: (a, b) => (a.sources?.[0] || '').localeCompare(b.sources?.[0] || '')
+    || a.title.localeCompare(b.title, 'th'),
+};
+
+function arrangeResults(list) {
+  const compare = RESULT_SORTS[$('#results-sort').value];
+  // Sorting a copy keeps "ตรงที่สุด" able to restore the original order.
+  return compare ? [...list].sort(compare) : list;
+}
+
 function renderResults() {
   const genres = chosenGenres();
   const media = chosenMedia();
@@ -971,7 +1010,8 @@ function renderResults() {
   $('#filtered-note').hidden = hidden <= 0;
   if (hidden > 0) $('#filtered-note').textContent = `ซ่อนไว้ ${hidden} เล่มจากตัวกรอง`;
 
-  $('#results').innerHTML = list.map((b) => cardHTML(b, 'search')).join('');
+  $('#results-bar').hidden = results.length === 0;
+  $('#results').innerHTML = arrangeResults(list).map((b) => cardHTML(b, 'search')).join('');
 }
 
 /* Keep the source row honest about the chosen รูปแบบ. Only sources this
@@ -1344,6 +1384,7 @@ $$('input[name="lang"]').forEach((radio) => radio.addEventListener('change', () 
 }));
 
 $('#free-only').addEventListener('change', renderResults);
+$('#results-sort').addEventListener('change', renderResults);
 $$('input[name="genre"]').forEach((box) => box.addEventListener('change', renderResults));
 $$('input[name="media"]').forEach((radio) => radio.addEventListener('change', () => {
   syncSourcesToMedia();
