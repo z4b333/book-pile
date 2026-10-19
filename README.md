@@ -31,9 +31,6 @@ detects the helper is missing and routes shop requests through a public reader i
 | **SE-ED** (se-ed.com) | The shop's own search API — cover, title, price, year, and an ISBN in the SKU | No |
 | **Kinokuniya ไทย** (kinokuniya.co.th) | Shopify predictive search — English and imported titles, cover, price, publisher, ISBN | No |
 | [Open Library](https://openlibrary.org/developers/api) | Covers, ISBNs, borrow/read-free status. `language=tha` in Thai scope | No |
-| [AniList](https://anilist.co) | Manga and light novels — covers, genres, volume counts. A catalogue of *works*, not editions for sale | No |
-| [Internet Archive](https://archive.org) | Millions of scanned and public-domain texts, free to read or borrow | No |
-| [วิกิซอร์ซ / Thai Wikisource](https://th.wikisource.org) | Public-domain Thai literature — Sunthorn Phu, royal chronicles, old law codes — free in full | No |
 | [Project Gutenberg](https://gutendex.com) via Gutendex | Public-domain works, mostly English (off by default) | No |
 
 Each source has a 12-second timeout and renders as soon as it lands, so one slow or
@@ -203,20 +200,25 @@ had one. Two things are deliberately **not** merged:
 This is why the app does not simply keep one result per shop, which was the obvious fix: that
 would have hidden real volumes of a series behind whichever one happened to be first.
 
-### Why AniList and Internet Archive
+### Shops that cannot be searched
 
-Thai bookshop search is poor at manga and light novels: the volumes are listed individually, the
-series itself has no entry, and a romanised title often misses entirely. AniList knows both
-formats properly and tells them apart — searching *Spice and Wolf* returns the manga and the
-light novel as separate results — so it is used to find the work, and the links panel is what
-takes you to a shop that stocks it.
+Most Thai e-book, light-novel and manga platforms cannot be queried from here, each for its own
+reason. Rather than leave them out, every one is offered as a flagged **ค้นเอง** button that
+opens its own search with what you typed — under the results, and in every book's links panel.
+They are never shown as *ไม่พบ*, because nothing is known about their stock.
 
-Both are public, keyless and send CORS headers, so unlike the shops they are called straight
-from the page with no proxy, and work the same on a phone.
+| Site | Why not automatic |
+| --- | --- |
+| **Naiin** | `robots.txt` disallows `/search-result`; Cloudflare answers `403` |
+| **Fictionlog** | `robots.txt` disallows `/api/*`, and the page loads its results from that API |
+| **Yaakz** | `robots.txt` disallows `/api/`; the page is server-rendered but the data is a serialized graph |
+| **Hytexts** | search runs in JavaScript and returns a 3 KB shell to a plain fetch |
+| **BookWalker** | global search redirects to a migration path that answers `403` |
+| **ReadAWrite** | the keyword is echoed but never applied, so its search has no URL |
+| **PhoenixNext** | a site-builder page with no searchable catalogue |
 
-Thai e-book and web-novel platforms were looked at too — Hytexts, Ookbee, Fictionlog, ReadAWrite
-and Dek-D. None exposes a guessable API, so each would need the same reverse-engineering meb
-took. They are not ruled out, only not done.
+ReadAWrite and PhoenixNext have no URL-addressable search at all, so their buttons open the site
+itself rather than a pre-filled query.
 
 ## Shop availability
 

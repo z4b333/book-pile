@@ -200,7 +200,6 @@ async function searchOpenLibrary({ field, term, lang }, signal) {
     if (d.ebook_access === 'public') {
       freeLinks.push({ label: 'Open Library (read free)', url: olUrl, kind: 'free read' });
       if (d.ia?.[0]) {
-        freeLinks.push({ label: 'Internet Archive', url: `https://archive.org/details/${d.ia[0]}`, kind: 'free download' });
       }
     } else if (d.ebook_access === 'borrowable') {
       freeLinks.push({ label: 'Open Library (borrow)', url: olUrl, kind: 'free borrow' });
@@ -547,113 +546,6 @@ async function searchSeed({ field, term }, signal) {
   return field === 'isbn' ? books : books.filter((b) => matchesQuery(b, term, field));
 }
 
-/* ------------------------------------------------- source: AniList */
-
-/* AniList is a catalogue rather than a shop: it knows manga and light novels
-   far better than any bookshop search does, and its API is public, keyless
-   and CORS-enabled, so it works straight from the page with no proxy.
-   Entries describe a *work*, not an edition for sale, so they carry no
-   รูปแบบ and the links panel is what takes you to a shop that stocks it. */
-const ANILIST_QUERY = `query ($search: String) {
-  Page(perPage: 20) {
-    media(search: $search, type: MANGA, sort: SEARCH_MATCH) {
-      title { romaji english native }
-      format genres volumes siteUrl countryOfOrigin
-      startDate { year }
-      coverImage { large }
-    }
-  }
-}`;
-
-// AniList's format tells us which of our genres a work belongs to.
-const ANILIST_GENRE = {
-  NOVEL: 'ไลท์โนเวล',
-  MANGA: 'การ์ตูน',
-  ONE_SHOT: 'การ์ตูน',
-  MANHWA: 'การ์ตูน',
-  MANHUA: 'การ์ตูน',
-};
-
-async function searchAniList({ field, term }, signal) {
-  if (field === 'isbn') return [];
-  const res = await fetch('https://graphql.anilist.co', {
-    method: 'POST',
-    signal: timedSignal(signal),
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query: ANILIST_QUERY, variables: { search: term } }),
-  });
-  if (res.status === 429) throw Object.assign(new Error('rate limited'), { code: 'rate-limit' });
-  if (!res.ok) throw Object.assign(new Error(`${res.status}`), { code: 'http' });
-  const data = await res.json();
-
-  return (data.data?.Page?.media || []).map((m) => {
-    const title = m.title?.english || m.title?.romaji || m.title?.native;
-    if (!title) return null;
-    return {
-      title,
-      authors: [],
-      year: m.startDate?.year ? String(m.startDate.year) : null,
-      publisher: 'AniList',
-      pages: null,
-      description: null,
-      cover: m.coverImage?.large || null,
-      isbn13: null,
-      isbn10: null,
-      // The Thai genre word goes in first so the genre filter reads it.
-      subjects: [ANILIST_GENRE[m.format], ...(m.genres || []).slice(0, 3)].filter(Boolean),
-      volumeCount: m.volumes || null,
-      price: null,
-      buyLink: null,
-      infoLink: m.siteUrl || null,
-      languages: [],
-      digital: null, // a work, not an edition — neither printed nor digital
-      sources: ['AniList'],
-      freeLinks: [],
-    };
-  }).filter(Boolean);
-}
-
-/* ------------------------------------------ source: Internet Archive */
-
-/* Millions of scanned and public-domain texts, free to read or borrow.
-   Plain GET with CORS, so this one also needs no proxy. */
-async function searchArchive({ field, term }, signal) {
-  if (field === 'isbn') return [];
-  const q = `${term} AND mediatype:texts`;
-  const params = new URLSearchParams({ q, rows: '20', page: '1', output: 'json' });
-  for (const f of ['identifier', 'title', 'creator', 'year', 'language', 'subject']) {
-    params.append('fl[]', f);
-  }
-  const data = await getJSON(`https://archive.org/advancedsearch.php?${params}`, signal);
-
-  return (data.response?.docs || []).map((d) => {
-    const title = Array.isArray(d.title) ? d.title[0] : d.title;
-    if (!title) return null;
-    const url = `https://archive.org/details/${d.identifier}`;
-    const creator = Array.isArray(d.creator) ? d.creator[0] : d.creator;
-    const langs = [].concat(d.language || []).map((l) => String(l).toLowerCase());
-    return {
-      title,
-      authors: creator ? [creator] : [],
-      year: d.year ? String(d.year) : null,
-      publisher: 'Internet Archive',
-      pages: null,
-      description: null,
-      cover: `https://archive.org/services/img/${d.identifier}`,
-      isbn13: null,
-      isbn10: null,
-      subjects: [].concat(d.subject || []).slice(0, 4),
-      price: null,
-      buyLink: null,
-      infoLink: url,
-      languages: langs,
-      digital: true,
-      sources: ['Internet Archive'],
-      freeLinks: [{ label: 'Internet Archive (อ่านฟรี)', url, kind: 'free read' }],
-    };
-  }).filter(Boolean);
-}
-
 /* ----------------------------------------------------- source: Gutendex */
 
 async function searchGutenberg({ field, term, lang }, signal) {
@@ -693,76 +585,11 @@ async function searchGutenberg({ field, term, lang }, signal) {
   });
 }
 
-/* ------------------------------------------- source: วิกิซอร์ซ (Wikisource) */
-
-/** Thai Wikisource holds public-domain Thai literature — Sunthorn Phu, royal
-    chronicles, old law codes — free in full. Search hits are usually chapter
-    subpages ("work/คำนำ"), so roll them up to the work they belong to. */
-async function searchThaiWikisource({ field, term }, signal) {
-  if (field === 'isbn') return [];
-  const url = 'https://th.wikisource.org/w/api.php?action=query&format=json&origin=*'
-    + '&generator=search&gsrnamespace=0&gsrlimit=30'
-    + '&prop=pageimages|info&inprop=url&piprop=thumbnail&pithumbsize=300'
-    + '&gsrsearch=' + encodeURIComponent(term);
-  const data = await getJSON(url, signal);
-
-  const works = new Map();
-  for (const page of Object.values(data.query?.pages || {})) {
-    const work = page.title.split('/')[0];
-    const isRoot = !page.title.includes('/');
-    const existing = works.get(work);
-    if (existing && !isRoot) {
-      if (!existing.cover && page.thumbnail?.source) existing.cover = page.thumbnail.source;
-      continue;
-    }
-    const pageUrl = isRoot
-      ? page.fullurl
-      : `https://th.wikisource.org/wiki/${encodeURIComponent(work.replace(/ /g, '_'))}`;
-    works.set(work, {
-      title: work.replace(/\s*\((\d{4})\)\s*$/, ''),
-      authors: [],
-      year: (work.match(/\((\d{4})\)/) || [])[1] || null,
-      publisher: 'วิกิซอร์ซ',
-      pages: null,
-      description: null,
-      cover: existing?.cover || page.thumbnail?.source || null,
-      isbn13: null,
-      isbn10: null,
-      subjects: [],
-      price: null,
-      buyLink: null,
-      infoLink: pageUrl,
-      languages: ['tha'],
-      digital: true,
-      sources: ['วิกิซอร์ซ'],
-      freeLinks: [{ label: 'วิกิซอร์ซ (อ่านเต็มเล่มฟรี)', url: pageUrl, kind: 'free read' }],
-    });
-  }
-  return [...works.values()];
-}
-
-/* What each source can actually supply. Picking a รูปแบบ switches off the
-   shops that cannot serve it — meb sells only e-books, Kinokuniya only
-   printed stock — so the source row never offers a pointless search. */
-const SOURCE_MEDIA = {
-  meb: ['ebook'],
-  seed: ['physical', 'ebook'],
-  kino: ['physical'],
-  openlibrary: ['physical', 'ebook'],
-  wikisource: ['ebook'],
-  gutenberg: ['ebook'],
-  archive: ['ebook'],
-  anilist: [], // a catalogue of works, so it fits no single รูปแบบ
-};
-
 const SOURCES = {
   meb: { name: 'meb', run: searchMeb },
   seed: { name: 'SE-ED', run: searchSeed },
   kino: { name: 'Kinokuniya', run: searchKinokuniya },
   openlibrary: { name: 'Open Library', run: searchOpenLibrary },
-  anilist: { name: 'AniList', run: searchAniList },
-  archive: { name: 'Internet Archive', run: searchArchive },
-  wikisource: { name: 'วิกิซอร์ซ', run: searchThaiWikisource },
   gutenberg: { name: 'Project Gutenberg', run: searchGutenberg },
 };
 
@@ -853,12 +680,8 @@ function isTranslated(book) {
 function thaiStoreLinks(q, qThai) {
   return [
     { shop: 'seed', label: 'SE-ED ซีเอ็ด', url: `https://www.se-ed.com/search?filter.keyword=${qThai}`, kind: 'ร้านหนังสือ' },
-    { manual: true, label: 'นายอินทร์ Naiin', url: `https://www.naiin.com/search?keyword=${qThai}`, kind: 'ค้นเองในเว็บ' },
     { shop: 'meb', label: 'meb (อีบุ๊ก)', url: `https://www.mebmarket.com/index.php?action=search_book&type=all&search=${qThai}`, kind: 'e-book' },
-    { label: 'ศูนย์หนังสือจุฬาฯ', url: `https://www.chulabook.com/categories?text=${qThai}`, kind: 'ร้านหนังสือ' },
-    { label: 'B2S', url: `https://www.b2s.co.th/search?q=${qThai}`, kind: 'ร้านหนังสือ' },
     { shop: 'kino', label: 'Kinokuniya ไทย', url: `https://kinokuniya.co.th/search?q=${q}`, kind: 'นำเข้า' },
-    { label: 'วัชรญาณ', url: `https://vajirayana.org/search/node/${qThai}`, kind: 'free read' },
   ];
 }
 
@@ -894,19 +717,22 @@ function storeLinks(book) {
   }
   links.push({ label: 'Amazon', url: isbn ? `https://www.amazon.com/s?k=${isbn}` : `https://www.amazon.com/s?k=${q}&i=stripbooks`, kind: 'buy' });
   links.push({ label: 'Amazon SG', url: isbn ? `https://www.amazon.sg/s?k=${isbn}` : `https://www.amazon.sg/s?k=${q}&i=stripbooks`, kind: 'ส่งไทย' });
-  links.push({ label: 'Bookshop.org', url: isbn ? `https://bookshop.org/search?keywords=${isbn}` : `https://bookshop.org/search?keywords=${q}`, kind: 'indie' });
   links.push({ label: 'Barnes & Noble', url: `https://www.barnesandnoble.com/s/${q}`, kind: 'buy' });
   links.push({ label: 'Kobo', url: `https://www.kobo.com/search?query=${isbn || q}`, kind: 'ebook' });
   links.push({ label: 'Apple Books', url: `https://books.apple.com/us/search?term=${q}`, kind: 'ebook' });
-  links.push({ label: 'AbeBooks (used)', url: isbn ? `https://www.abebooks.com/servlet/SearchResults?isbn=${isbn}` : `https://www.abebooks.com/servlet/SearchResults?kn=${q}`, kind: 'used' });
-  links.push({ label: 'WorldCat (libraries)', url: isbn ? `https://search.worldcat.org/search?q=bn%3A${isbn}` : `https://search.worldcat.org/search?q=${q}`, kind: 'borrow' });
-  links.push({ label: 'Standard Ebooks', url: `https://standardebooks.org/ebooks?query=${q}`, kind: 'free' });
   if (!isThai(book)) {
     links.push(...withShopState([
       { shop: 'seed', label: 'หาฉบับแปลไทย — SE-ED', url: `https://www.se-ed.com/search?filter.keyword=${qThai}`, kind: 'ฉบับไทย?' },
       { shop: 'meb', label: 'หาฉบับแปลไทย — meb', url: `https://www.mebmarket.com/index.php?action=search_book&type=all&search=${qThai}`, kind: 'ฉบับไทย?' },
     ], book));
   }
+  // Shops whose stock cannot be checked at all. They are listed for every
+  // book, not just Thai ones, because the manga and light-novel shops matter
+  // most for titles that arrive from a non-Thai source.
+  links.push(...MANUAL_SHOPS.map((shop) => ({
+    manual: true, label: shop.label, url: shop.url(qThai), kind: 'ค้นเอง',
+  })));
+
   if (book.infoLink) links.push({ label: book.sources?.[0] || 'Source page', url: book.infoLink, kind: 'details' });
 
   return dedupeLinks(links);
@@ -983,6 +809,14 @@ function report(pending, failed) {
    pretend the shop has nothing. */
 const MANUAL_SHOPS = [
   { label: 'นายอินทร์', url: (q) => `https://www.naiin.com/search?keyword=${q}` },
+  { label: 'BookWalker', url: (q) => `https://global.bookwalker.jp/search/?word=${q}` },
+  { label: 'Hytexts', url: (q) => `https://www.hytexts.com/search?q=${q}` },
+  { label: 'Fictionlog', url: (q) => `https://fictionlog.co/search?q=${q}` },
+  { label: 'Yaakz', url: (q) => `https://www.yaakz.com/search?keyword=${q}` },
+  // These two have no search that can be reached by URL, so the link lands on
+  // the site and the reader takes it from there.
+  { label: 'ReadAWrite', url: () => 'https://www.readawrite.com/' },
+  { label: 'PhoenixNext', url: () => 'https://phoenix-next.com/' },
   { label: 'B2S', url: (q) => `https://www.b2s.co.th/search?q=${q}` },
   { label: 'ศูนย์หนังสือจุฬาฯ', url: (q) => `https://www.chulabook.com/categories?text=${q}` },
 ];
@@ -992,7 +826,7 @@ function showManualShops(term) {
   if (!term) { box.hidden = true; return; }
   const q = encodeURIComponent(term);
   box.hidden = false;
-  box.innerHTML = `<span class="manual-label">ค้นอัตโนมัติไม่ได้ ลองดูเอง</span>`
+  box.innerHTML = '<span class="manual-label">ร้านที่ตรวจให้ไม่ได้ — ต้องค้นเอง</span>'
     + MANUAL_SHOPS.map((shop) =>
       `<a class="manual-link" href="${esc(shop.url(q))}" target="_blank" rel="noopener noreferrer">${shop.label}</a>`
     ).join('');
@@ -1210,7 +1044,7 @@ function openDialog(id) {
 
   const linkRow = (l) => `<a class="link-row${/free/i.test(l.kind) ? ' is-free' : ''}${
          l.state ? ` state-${l.state}` : ''}${l.manual ? ' state-manual' : ''}"${
-         l.manual ? ' title="ร้านนี้ไม่อนุญาตให้ค้นหาอัตโนมัติ จึงตรวจสต็อกให้ไม่ได้"' : ''}${
+         l.manual ? ' title="ตรวจสต็อกอัตโนมัติไม่ได้ กดเพื่อไปค้นหาเองในเว็บของร้าน"' : ''}${
          l.shop ? ` data-shop="${l.shop}"` : ''}
        href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">
        ${l.state === 'check' ? '<span class="spinner"></span>' : ''}
