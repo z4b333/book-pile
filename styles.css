@@ -391,8 +391,11 @@ main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
 .chip.ghost-chip { background: var(--surface-2); border-color: transparent; color: var(--text); }
 .chip.ghost-chip:hover { background: var(--accent-soft); color: var(--accent); }
 
-.status { min-height: 22px; margin: 16px 0 4px; color: var(--muted); font-size: 13.5px; }
-.status.error { color: oklch(55% 0.17 28); }
+/* Scoped to the element: as a bare .status this also matched .badge.status,
+   so every status tag inherited this line's 16px top margin and sat lower
+   than the tags beside it. */
+#search-status { min-height: 22px; margin: 16px 0 4px; color: var(--muted); font-size: 13.5px; }
+#search-status.error { color: oklch(55% 0.17 28); }
 
 .intro { padding: 52px 0 12px; }
 .intro h1, .intro p { max-width: 580px; }

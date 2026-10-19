@@ -356,6 +356,11 @@ them. And a wrapped flex container stretches its lines to fill spare height, so 
 tags ran to two lines the first line grew to 46px while the second stayed at 26px. Every tag is
 now one height, and a long shop name no longer shrinks or breaks.
 
+A third cause hid behind those two: the search status line was styled by a bare `.status`
+selector, which also matched `.badge.status`, so every status tag inherited that line's
+`margin: 16px 0 4px` and sat 6px below its neighbours. The rule is scoped to `#search-status`
+now. It is a reminder to keep a generic class name off a shared element.
+
 ## Look and feel
 
 The interface is in Thai. Two controls sit in the top right:
