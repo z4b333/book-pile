@@ -182,7 +182,10 @@ async function searchOpenLibrary({ field, term, lang }, signal) {
   // carry no Thai language tag at all ("สี่แผ่นดิน" returns 1 hit unfiltered,
   // 0 with language=tha). A Thai-script query already constrains the results,
   // so only filter when the user typed Latin script and wants Thai editions.
+  // Open Library's own language filter drops real Thai books, so it is only
+  // used when the typed script cannot already imply the language.
   if (lang === 'th' && !THAI_SCRIPT.test(term)) params.set('language', 'tha');
+  if (lang === 'en') params.set('language', 'eng');
   params.set('fields', [
     'key', 'title', 'subtitle', 'author_name', 'first_publish_year', 'publisher',
     'number_of_pages_median', 'cover_i', 'isbn', 'subject', 'ebook_access', 'ia', 'language',
@@ -223,6 +226,38 @@ async function searchOpenLibrary({ field, term, lang }, signal) {
       freeLinks,
     };
   });
+}
+
+/* ----------------------------------------------------------- editions */
+
+/* The same book is listed many times over: a paperback, a box set, a PDF, a
+   reprint with a new ISBN. Matching on ISBN alone keeps them apart, because
+   every printing has its own. These collapse into one card.
+
+   Volume numbers stay distinct, so เล่ม 1 and เล่ม 2 never merge, and the
+   media type is part of the key, so a printed copy and an e-book of the same
+   title remain separate cards — you are usually choosing between them. */
+function editionKey(book) {
+  const base = slug(seriesBase(book.title)) || slug(book.title);
+  const volume = volumeOf(book.title) ?? '';
+  const author = slug((book.authors || [])[0] || '').split(' ').pop() || '';
+  return `${base}#${volume}#${author}#${mediaOf(book)}`;
+}
+
+function groupEditions(books) {
+  const groups = new Map();
+  for (const book of books) {
+    const key = editionKey(book);
+    const seen = groups.get(key);
+    if (!seen) {
+      groups.set(key, { ...book, editions: 1 });
+      continue;
+    }
+    const merged = mergeBooks(seen, book);
+    merged.editions = (seen.editions || 1) + 1;
+    groups.set(key, merged);
+  }
+  return [...groups.values()];
 }
 
 /* ------------------------------------------------- matching & series */
@@ -517,7 +552,7 @@ async function searchSeed({ field, term }, signal) {
 async function searchGutenberg({ field, term, lang }, signal) {
   if (field === 'isbn') return [];
   const url = `https://gutendex.com/books?search=${encodeURIComponent(term)}`
-    + (lang === 'th' ? '&languages=th' : '');
+    + (lang === 'th' ? '&languages=th' : lang === 'en' ? '&languages=en' : '');
   const data = await getJSON(url, signal);
   return (data.results || []).slice(0, 20).map((b) => {
     const fmt = b.formats || {};
@@ -599,6 +634,18 @@ async function searchThaiWikisource({ field, term }, signal) {
   return [...works.values()];
 }
 
+/* What each source can actually supply. Picking a รูปแบบ switches off the
+   shops that cannot serve it — meb sells only e-books, Kinokuniya only
+   printed stock — so the source row never offers a pointless search. */
+const SOURCE_MEDIA = {
+  meb: ['ebook'],
+  seed: ['physical', 'ebook'],
+  kino: ['physical'],
+  openlibrary: ['physical', 'ebook'],
+  wikisource: ['ebook'],
+  gutenberg: ['ebook'],
+};
+
 const SOURCES = {
   meb: { name: 'meb', run: searchMeb },
   seed: { name: 'SE-ED', run: searchSeed },
@@ -616,29 +663,46 @@ const SOURCES = {
    ไลท์โนเวล) and whether it is digital. A light novel can also be an e-book,
    so a book carries a set of tags rather than one label, and the filter
    matches any of them. */
-const FORMAT_LABELS = {
-  novel: 'นิยาย',
+const GENRE_LABELS = {
+  fiction: 'นิยาย',
+  nonfiction: 'สารคดี',
   lightnovel: 'ไลท์โนเวล',
   manga: 'การ์ตูน',
-  ebook: 'อีบุ๊ก',
 };
+const MEDIA_LABELS = { physical: 'หนังสือเล่ม', ebook: 'อีบุ๊ก' };
+const LANG_LABELS = { th: 'ไทย', en: 'อังกฤษ', other: 'อื่นๆ' };
 
-// Checked in order; the most specific kind wins, so "graphic novel" is manga
-// and ไลท์โนเวล is not also counted as a plain นิยาย.
-const FORMAT_PATTERNS = [
+/* Genre is read from each shop's own category text. The order matters: the
+   most specific kind wins, so a graphic novel is การ์ตูน and never also
+   นิยาย. A book whose categories say nothing useful gets no genre at all
+   rather than a guessed one — it simply will not match a genre filter. */
+const GENRE_PATTERNS = [
   ['lightnovel', /ไลท์โนเวล|ไลต์โนเวล|light\s*novel/i],
-  ['manga', /การ์ตูน|มังงะ|manga|comic|graphic novel|อนิเม/i],
-  ['novel', /นิยาย|วรรณกรรม|เรื่องสั้น|novel|fiction|literature/i],
+  ['manga', /การ์ตูน|มังงะ|manga|comic|graphic novel|อนิเม|webtoon/i],
+  ['nonfiction', /สารคดี|ประวัติศาสตร์|ชีวประวัติ|จิตวิทยา|พัฒนาตนเอง|ธุรกิจ|การเงิน|การลงทุน|สุขภาพ|อาหาร|ท่องเที่ยว|ศาสนา|ปรัชญา|การศึกษา|คอมพิวเตอร์|วิทยาศาสตร์|ภาษา|กฎหมาย|how.?to|non.?fiction|biography|history|business|self.?help|psychology|science|cookbook|travel|reference|textbook/i],
+  ['fiction', /นิยาย|วรรณกรรม|เรื่องสั้น|โรแมนซ์|แฟนตาซี|สืบสวน|ทริลเลอร์|สยองขวัญ|novel|fiction|literature|romance|fantasy|mystery|thriller/i],
 ];
 
-function formatsOf(book) {
+function genreOf(book) {
   const hay = [book.title, book.publisher, ...(book.subjects || [])].join(' ');
-  const tags = [];
-  for (const [tag, pattern] of FORMAT_PATTERNS) {
-    if (pattern.test(hay)) { tags.push(tag); break; }
-  }
-  if (book.digital) tags.push('ebook');
-  return tags;
+  for (const [genre, pattern] of GENRE_PATTERNS) if (pattern.test(hay)) return genre;
+  return null;
+}
+
+/** Physical or digital, from the flag each source reports. */
+function mediaOf(book) {
+  return book.digital ? 'ebook' : 'physical';
+}
+
+/** Thai, English, or something else — metadata first, then the title's script. */
+function languageOf(book) {
+  const codes = (book.languages || []).map((l) => l.toLowerCase());
+  if (codes.includes('tha') || codes.includes('th')) return 'th';
+  if (THAI_SCRIPT.test(book.title || '')) return 'th';
+  if (codes.includes('eng') || codes.includes('en')) return 'en';
+  if (codes.length) return 'other';
+  // No language metadata: Latin script is almost always English here.
+  return /[A-Za-z]/.test(book.title || '') ? 'en' : 'other';
 }
 
 const THAI_SCRIPT = /[฀-๿]/;
@@ -772,7 +836,7 @@ async function runSearch(query, sourceKeys) {
         const id = fingerprint(book);
         merged.set(id, merged.has(id) ? mergeBooks(merged.get(id), book) : { ...book, id });
       }
-      results = [...merged.values()];
+      results = groupEditions([...merged.values()]);
     } catch (err) {
       if (seq !== searchSeq || err.name === 'AbortError') return;
       failed.push(`${name} ${FAIL_REASON[err.code] || 'ใช้งานไม่ได้'}`);
@@ -874,6 +938,12 @@ function coverHTML(book, cls = 'cover') {
   return `<div class="${cls} placeholder">📕</div>`;
 }
 
+/** The labels shown on a card: genre first, then physical/e-book. */
+function bookTags(book) {
+  const genre = genreOf(book);
+  return [genre ? GENRE_LABELS[genre] : null, MEDIA_LABELS[mediaOf(book)]].filter(Boolean);
+}
+
 function metaLine(book) {
   return [
     book.price,
@@ -886,7 +956,8 @@ function metaLine(book) {
 function cardHTML(book, mode) {
   const saved = inLibrary(book.id);
   const badges = [
-    ...formatsOf(book).map((f) => `<span class="badge format">${FORMAT_LABELS[f]}</span>`),
+    ...bookTags(book).map((t) => `<span class="badge format">${t}</span>`),
+    book.editions > 1 ? `<span class="badge">${book.editions} ฉบับ</span>` : '',
     isTranslated(book) ? '<span class="badge thai">แปลไทย</span>'
       : isThai(book) ? '<span class="badge thai">ไทย</span>' : '',
     isFree(book) ? '<span class="badge free">ฟรี</span>' : '',
@@ -923,20 +994,50 @@ function cardHTML(book, mode) {
   </article>`;
 }
 
-const chosenFormats = () => $$('input[name="format"]:checked').map((i) => i.value);
+const chosenGenres = () => $$('input[name="genre"]:checked').map((i) => i.value);
+const chosenMedia = () => $('input[name="media"]:checked')?.value || 'any';
 
 function renderResults() {
-  let list = $('#free-only').checked ? results.filter(isFree) : results;
-  // No format chosen means no opinion, so everything stays.
-  const wanted = chosenFormats();
-  if (wanted.length) {
-    list = list.filter((b) => formatsOf(b).some((f) => wanted.includes(f)));
-  }
-  // In Thai scope, non-Thai hits still matter — a Thai edition may exist under
-  // the same title — so they sink to the bottom rather than disappearing.
-  if (searchLang() === 'th') list = [...list].sort((a, b) => Number(isThai(b)) - Number(isThai(a)));
+  const genres = chosenGenres();
+  const media = chosenMedia();
+  const lang = searchLang();
+
+  const list = results.filter((b) => {
+    if ($('#free-only').checked && !isFree(b)) return false;
+    if (media !== 'any' && mediaOf(b) !== media) return false;
+    // No genre ticked means no opinion, so everything stays.
+    if (genres.length && !genres.includes(genreOf(b))) return false;
+    if (lang !== 'any' && languageOf(b) !== lang) return false;
+    return true;
+  });
+
+  const hidden = results.length - list.length;
+  $('#filtered-note').hidden = hidden <= 0;
+  if (hidden > 0) $('#filtered-note').textContent = `ซ่อนไว้ ${hidden} เล่มจากตัวกรอง`;
+
   $('#results').innerHTML = list.map((b) => cardHTML(b, 'search')).join('');
 }
+
+/* Keep the source row honest about the chosen รูปแบบ. Only sources this
+   function switched off are switched back on, so neither the page's own
+   defaults nor a shop the reader unticked get overridden. */
+function syncSourcesToMedia() {
+  const media = chosenMedia();
+  $$('input[name="source"]').forEach((box) => {
+    const fits = media === 'any' || (SOURCE_MEDIA[box.value] || []).includes(media);
+    const chip = box.closest('.chip');
+    box.disabled = !fits;
+    chip.classList.toggle('chip-off', !fits);
+    chip.title = fits ? '' : `แหล่งนี้ไม่มี${MEDIA_LABELS[media]}`;
+    if (!fits) {
+      if (box.checked) { chip.dataset.autoOff = '1'; box.checked = false; }
+    } else if (chip.dataset.autoOff) {
+      box.checked = true;
+      delete chip.dataset.autoOff;
+    }
+  });
+}
+
 
 function renderLibrary() {
   const term = slug($('#library-filter').value);
@@ -945,7 +1046,7 @@ function renderLibrary() {
   let list = library.filter((b) => activeStatus === 'all' || b.status === activeStatus);
   if (term) {
     list = list.filter((b) => {
-      const formats = formatsOf(b).map((f) => FORMAT_LABELS[f]).join(' ');
+      const formats = bookTags(b).join(' ');
       return slug(`${b.title} ${(b.authors || []).join(' ')} ${b.note || ''} ${formats}`).includes(term);
     });
   }
@@ -1006,7 +1107,7 @@ function openDialog(id) {
         ${metaLine(book) ? `<p class="card-meta">${esc(metaLine(book))}</p>` : ''}
         ${book.isbn13 || book.isbn10 ? `<p class="card-meta">ISBN ${esc(book.isbn13 || book.isbn10)}</p>` : ''}
         <div class="badges">
-          ${formatsOf(book).map((f) => `<span class="badge format">${FORMAT_LABELS[f]}</span>`).join('')}
+          ${bookTags(book).map((t) => `<span class="badge format">${t}</span>`).join('')}
           ${isTranslated(book) ? '<span class="badge thai">แปลไทย</span>'
             : isThai(book) ? '<span class="badge thai">ภาษาไทย</span>' : ''}
           ${free.length ? '<span class="badge free">มีให้ฟรี</span>' : ''}
@@ -1224,6 +1325,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 buildSwatches();
+syncSourcesToMedia();
 
 /* ------------------------------------------------------------ the guide */
 
@@ -1273,12 +1375,19 @@ const searchLang = () => $('input[name="lang"]:checked')?.value || 'any';
 
 $$('input[name="lang"]').forEach((radio) => radio.addEventListener('change', () => {
   // วิกิซอร์ซ only holds Thai texts, so it follows the language scope.
-  $('input[name="source"][value="wikisource"]').checked = searchLang() === 'th';
+  const wiki = $('input[name="source"][value="wikisource"]');
+  if (!wiki.disabled) wiki.checked = searchLang() === 'th';
   if ($('#search-input').value.trim()) $('#search-form').requestSubmit();
+  else renderResults();
 }));
 
 $('#free-only').addEventListener('change', renderResults);
-$$('input[name="format"]').forEach((box) => box.addEventListener('change', renderResults));
+$$('input[name="genre"]').forEach((box) => box.addEventListener('change', renderResults));
+$$('input[name="media"]').forEach((radio) => radio.addEventListener('change', () => {
+  syncSourcesToMedia();
+  renderResults();
+}));
+
 $('#library-filter').addEventListener('input', renderLibrary);
 $('#library-sort').addEventListener('change', renderLibrary);
 $('#export-btn').addEventListener('click', exportLibrary);

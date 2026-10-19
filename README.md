@@ -155,42 +155,49 @@ is known, so they land on the right edition.
 **The library** stores books under three statuses — *To buy*, *To download*, *Got it* — each with
 a note. Filter, sort, export to JSON, import it back.
 
-## Formats
+## Filters
 
-Books are tagged **นิยาย**, **ไลท์โนเวล**, **การ์ตูน** and **อีบุ๊ก**, and the format chips on the
-search page narrow results to any of the ticked tags. Tags also show on every card and in the
-library, where the text filter matches them — typing `การ์ตูน` finds the manga you saved.
+Four rows narrow a search, and all of them work on what the sources actually report rather than
+on guesses:
 
-These are not one dimension, so a book carries a *set* rather than a single label. A light
-novel sold as a PDF is both ไลท์โนเวล and อีบุ๊ก, and ticking either chip finds it. The kind
-tags are mutually exclusive and resolved most-specific-first, so a graphic novel is การ์ตูน and
-never also นิยาย, and ไลท์โนเวล is never doubled up as นิยาย.
+| Row | Options | Where it comes from |
+| --- | --- | --- |
+| **ภาษา** | ไทย · อังกฤษ · อื่นๆ · ทั้งหมด | the source's language metadata, falling back to the title's script |
+| **ประเภท** | นิยาย · สารคดี · ไลท์โนเวล · การ์ตูน | each shop's own category text |
+| **รูปแบบ** | หนังสือเล่ม · อีบุ๊ก | each source states whether its edition is digital |
+| **แหล่ง** | the six sources | ticked by hand |
 
-Detection reads each source's own category data plus the title: meb and SE-ED category names,
-Kinokuniya tags, Open Library subjects. `อีบุ๊ก` is separate and factual rather than guessed —
-meb sells only e-books, SE-ED says which catalogue a product came from, Open Library reports its
-ebook access, and Gutenberg and วิกิซอร์ซ are digital by definition.
+Genre is resolved most-specific-first, so a graphic novel is การ์ตูน and never also นิยาย. A book
+whose categories say nothing useful gets **no** genre rather than a wrong one, which means it
+will not match a genre filter — a deliberate choice over mislabelling it.
 
-Classification is only as good as the categories the shops publish; a book filed under nothing
-useful gets no kind tag rather than a wrong one.
+Changing **ภาษา** re-runs the search, because it changes what the sources are asked for (Open
+Library's language parameter, Gutenberg's, and whether วิกิซอร์ซ is included). The other rows
+filter what is already on screen, and a line under the status says how many books are hidden.
 
-## Same series
+### Sources follow the format
 
-Opening a book shows the other volumes in its series, ordered by volume number, with covers and
-prices. Clicking one opens that book, so a series can be browsed without going back to search.
+Picking a รูปแบบ switches off the shops that cannot serve it, so the row never offers a
+pointless search: meb and วิกิซอร์ซ and Gutenberg sell only e-books, Kinokuniya only printed
+stock, SE-ED and Open Library carry both. Only sources switched off this way are switched back
+on, so neither the page's defaults nor a shop you unticked get overridden.
 
-There is no series ID to rely on — meb's `series_issue_id` turns out to be the *volume* number,
-not a series key — so siblings are grouped by title instead: volume markers (`เล่ม 7`, `vol. 3`,
-bracketed notes like `(PDF)` or `(จบ)`) are stripped, and books sharing the remaining base are
-treated as one series.
+## One card per book, not per printing
 
-This costs no extra requests. The availability check already queries meb and SE-ED when a dialog
-opens; it now searches the *series base* rather than the exact title, so one search per shop
-answers both questions.
+The same book is listed many times over — a paperback, a box set, a PDF, a reprint with a fresh
+ISBN. Matching on ISBN alone keeps them all apart, because every printing has its own, so the
+results filled up with near-identical rows and genuinely different books fell off the end.
 
-Volume numbers are compared before titles when deciding whether two entries are the same book.
-Plain text containment makes `เล่ม 2` look like a match for `เล่ม 21`, which would wrongly hide a
-volume from the strip and mislabel shop availability.
+Editions now collapse into a single card, marked *N ฉบับ*, carrying the links of every shop that
+had one. Two things are deliberately **not** merged:
+
+- **Volumes.** เล่ม 1 and เล่ม 2 are different books. The volume number is part of the key, and is
+  read before any title comparison, since `เล่ม 2` is otherwise a substring of `เล่ม 21`.
+- **Printed vs e-book.** These stay separate cards, because choosing between them is usually the
+  point.
+
+This is why the app does not simply keep one result per shop, which was the obvious fix: that
+would have hidden real volumes of a series behind whichever one happened to be first.
 
 ## Shop availability
 

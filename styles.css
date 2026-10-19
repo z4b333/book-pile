@@ -379,7 +379,8 @@ main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
 .chip:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
 .chip.free-chip:has(input:checked) { background: var(--free-soft); }
 .chip.free-chip input:checked ~ span { color: var(--free); }
-.chip.chip-off { opacity: .45; cursor: not-allowed; border-style: dashed; }
+.chip.chip-off { opacity: .4; cursor: not-allowed; border-style: dashed; }
+.chip.chip-off span { color: var(--muted); font-weight: 400; }
 .chip.chip-off:hover { border-color: var(--line); color: var(--muted); }
 .chip.ghost-chip { background: var(--surface-2); border-color: transparent; color: var(--text); }
 .chip.ghost-chip:hover { background: var(--accent-soft); color: var(--accent); }
@@ -631,6 +632,12 @@ dialog::backdrop { background: oklch(15% 0.02 60 / 0.55); backdrop-filter: blur(
    about its stock either way, so it reads as an invitation to look. */
 .link-row.state-manual { border-style: dashed; }
 .link-row.state-manual .kind { color: var(--accent); }
+
+.filtered-note {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin: -2px 0 6px;
+}
 
 .manual-shops {
   display: flex;

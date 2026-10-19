@@ -67,16 +67,27 @@
           <span class="option-label">ภาษา</span>
           <div class="segmented">
             <label><input type="radio" name="lang" value="th" checked><span>ไทย</span></label>
-            <label><input type="radio" name="lang" value="any"><span>ทุกภาษา</span></label>
+            <label><input type="radio" name="lang" value="en"><span>อังกฤษ</span></label>
+            <label><input type="radio" name="lang" value="other"><span>อื่นๆ</span></label>
+            <label><input type="radio" name="lang" value="any"><span>ทั้งหมด</span></label>
           </div>
         </div>
 
         <div class="option-row">
+          <span class="option-label">ประเภท</span>
+          <label class="chip"><input type="checkbox" name="genre" value="fiction"><span>นิยาย</span></label>
+          <label class="chip"><input type="checkbox" name="genre" value="nonfiction"><span>สารคดี</span></label>
+          <label class="chip"><input type="checkbox" name="genre" value="lightnovel"><span>ไลท์โนเวล</span></label>
+          <label class="chip"><input type="checkbox" name="genre" value="manga"><span>การ์ตูน</span></label>
+        </div>
+
+        <div class="option-row">
           <span class="option-label">รูปแบบ</span>
-          <label class="chip"><input type="checkbox" name="format" value="novel"><span>นิยาย</span></label>
-          <label class="chip"><input type="checkbox" name="format" value="lightnovel"><span>ไลท์โนเวล</span></label>
-          <label class="chip"><input type="checkbox" name="format" value="manga"><span>การ์ตูน</span></label>
-          <label class="chip"><input type="checkbox" name="format" value="ebook"><span>อีบุ๊ก</span></label>
+          <div class="segmented">
+            <label><input type="radio" name="media" value="any" checked><span>ทั้งหมด</span></label>
+            <label><input type="radio" name="media" value="physical"><span>หนังสือเล่ม</span></label>
+            <label><input type="radio" name="media" value="ebook"><span>อีบุ๊ก</span></label>
+          </div>
         </div>
 
         <div class="option-row">
@@ -92,6 +103,7 @@
       </div>
 
       <div id="search-status" class="status" aria-live="polite"></div>
+      <div id="filtered-note" class="filtered-note" hidden></div>
       <div id="manual-shops" class="manual-shops" hidden></div>
 
       <div id="search-intro" class="intro">
