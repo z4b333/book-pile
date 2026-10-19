@@ -108,6 +108,10 @@ The only legitimate ways to change this would be an official API or affiliate fe
 or crawling the product URLs in their published `sitemap.xml` — allowed by robots.txt, but a
 disproportionate amount of machinery for one shop.
 
+A book's links panel is split in two: **ซื้อหรือยืม** for the shops whose stock was actually
+checked, and **ตรวจสต็อกให้ไม่ได้ — ค้นเอง** for the rest. Without that split the handful of
+useful answers were lost among a dozen links that only say "go and look".
+
 Shops that cannot be searched are never dimmed in the links panel. Not knowing is not the same
 as knowing a shop lacks the book, and greying them out would be a guess presented as a fact.
 
@@ -147,9 +151,10 @@ for a Thai edition of the same title.
 
 Thai shop searches use the title alone; their search engines do worse with an author appended.
 
-**International links** follow: Amazon, Bookshop.org, Barnes & Noble, Kobo, Apple Books,
-AbeBooks (used), WorldCat (borrow from a library), Standard Ebooks. These use the ISBN when one
-is known, so they land on the right edition.
+**International links** follow: Amazon, Amazon SG (which ships to Thailand), Kobo and Apple
+Books. They use the ISBN when one is known, so they land on the right edition — but none of
+them can be checked either, so they carry the same ค้นเอง flag as the Thai shops we cannot
+query. Barnes & Noble was dropped, since it does not realistically serve Thailand.
 
 **The library** stores books under three statuses — *To buy*, *To download*, *Got it* — each with
 a note. Filter, sort, export to JSON, import it back.

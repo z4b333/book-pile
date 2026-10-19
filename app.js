@@ -715,11 +715,14 @@ function storeLinks(book) {
       { shop: 'kino', label: 'Kinokuniya ไทย', url: `https://kinokuniya.co.th/search?q=${q}`, kind: 'นำเข้า' },
     ], book));
   }
-  links.push({ label: 'Amazon', url: isbn ? `https://www.amazon.com/s?k=${isbn}` : `https://www.amazon.com/s?k=${q}&i=stripbooks`, kind: 'buy' });
-  links.push({ label: 'Amazon SG', url: isbn ? `https://www.amazon.sg/s?k=${isbn}` : `https://www.amazon.sg/s?k=${q}&i=stripbooks`, kind: 'ส่งไทย' });
-  links.push({ label: 'Barnes & Noble', url: `https://www.barnesandnoble.com/s/${q}`, kind: 'buy' });
-  links.push({ label: 'Kobo', url: `https://www.kobo.com/search?query=${isbn || q}`, kind: 'ebook' });
-  links.push({ label: 'Apple Books', url: `https://books.apple.com/us/search?term=${q}`, kind: 'ebook' });
+  // None of these can be checked either, so they are flagged like every other
+  // unverifiable shop. An ISBN still lands them on the exact edition.
+  links.push(
+    { manual: true, label: 'Amazon', url: isbn ? `https://www.amazon.com/s?k=${isbn}` : `https://www.amazon.com/s?k=${q}&i=stripbooks`, kind: 'ค้นเอง' },
+    { manual: true, label: 'Amazon SG (ส่งไทย)', url: isbn ? `https://www.amazon.sg/s?k=${isbn}` : `https://www.amazon.sg/s?k=${q}&i=stripbooks`, kind: 'ค้นเอง' },
+    { manual: true, label: 'Kobo', url: `https://www.kobo.com/search?query=${isbn || q}`, kind: 'ค้นเอง' },
+    { manual: true, label: 'Apple Books', url: `https://books.apple.com/th/search?term=${q}`, kind: 'ค้นเอง' },
+  );
   if (!isThai(book)) {
     links.push(...withShopState([
       { shop: 'seed', label: 'หาฉบับแปลไทย — SE-ED', url: `https://www.se-ed.com/search?filter.keyword=${qThai}`, kind: 'ฉบับไทย?' },
@@ -1041,6 +1044,9 @@ function openDialog(id) {
   const saved = inLibrary(book.id);
   const free = book.freeLinks || [];
   const stores = storeLinks(book);
+  // Shops we can report on are worth more space than the ones we cannot.
+  const checkable = stores.filter((l) => !l.manual);
+  const manual = stores.filter((l) => l.manual);
 
   const linkRow = (l) => `<a class="link-row${/free/i.test(l.kind) ? ' is-free' : ''}${
          l.state ? ` state-${l.state}` : ''}${l.manual ? ' state-manual' : ''}"${
@@ -1072,8 +1078,11 @@ function openDialog(id) {
     ${free.length ? `<p class="links-title">อ่านหรือโหลดฟรี</p>
       <div class="links">${free.map(linkRow).join('')}</div>` : ''}
     <div class="series-slot"></div>
-    <p class="links-title">ซื้อหรือยืม</p>
-    <div class="links">${stores.map(linkRow).join('')}</div>
+    ${checkable.length ? `<p class="links-title">ซื้อหรือยืม</p>
+      <div class="links">${checkable.map(linkRow).join('')}</div>` : ''}
+    ${manual.length ? `<p class="links-title">ตรวจสต็อกให้ไม่ได้ — ค้นเอง
+        <span class="muted-count">${manual.length}</span></p>
+      <div class="links">${manual.map(linkRow).join('')}</div>` : ''}
     ${saved ? `
       <p class="links-title">โน้ตของฉัน</p>
       <textarea class="note-field" data-act="note" data-id="${esc(book.id)}"
