@@ -336,6 +336,17 @@ scale had five sizes inside a 4px band, which reads as muddle rather than hierar
 end was raised, which also suits Thai, whose vowel marks sit above and below the line and need
 more room than Latin at the same nominal size.
 
+Pills were sitting flush. Nothing actually overlapped, but a segmented control packs its
+options with no gap, and fully-rounded shapes whose curves touch read as colliding bubbles —
+3px between them is enough to separate them. Chip spacing went from 7px to 9px for the same
+reason: a round shape's apparent gap narrows at its vertical centre. Filter rows also sat at
+mismatched heights, 45px for a segmented control against 39px for a chip row, now both 40px.
+
+The example searches wrapped onto a second line because the chips were held to the 580px
+reading width used for the prose above them, and the raised touch targets pushed them 14px over
+it. They are a horizontal list rather than prose, so only the heading and paragraph keep that
+width now.
+
 Badges became outlines rather than filled chips. Four filled badges per card competed with the
 title and the cover for attention, when their job is to be glanceable, not loud.
 

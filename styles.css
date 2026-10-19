@@ -324,7 +324,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
 .btn:disabled:hover { background: var(--surface); border-color: var(--line); }
 
 .options { margin: 18px 0 2px; display: flex; flex-direction: column; gap: 10px; }
-.option-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.option-row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 .option-label {
   font-size: 11px;
   font-weight: 700;
@@ -336,16 +336,21 @@ main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
 
 .segmented {
   display: inline-flex;
+  gap: 3px;
   background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: 99px;
-  padding: 3px;
+  padding: 2px;
 }
 .segmented label { cursor: pointer; }
 .segmented input { position: absolute; opacity: 0; pointer-events: none; }
+/* The rows sat at mismatched heights — 45px for a segmented control against
+   39px for a chip row. Matching them settles the stack. */
 .segmented span {
-  display: block;
-  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 6px 15px;
   border-radius: 99px;
   font-size: 13.5px;
   color: var(--muted);
@@ -389,7 +394,8 @@ main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
 .status { min-height: 22px; margin: 16px 0 4px; color: var(--muted); font-size: 13.5px; }
 .status.error { color: oklch(55% 0.17 28); }
 
-.intro { padding: 52px 0 12px; max-width: 580px; }
+.intro { padding: 52px 0 12px; }
+.intro h1, .intro p { max-width: 580px; }
 .intro h1 {
   font-size: clamp(30px, 5vw, 42px);
   line-height: 1.22;
@@ -398,7 +404,15 @@ main { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
   margin: 0 0 14px;
 }
 .intro p { color: var(--muted); margin: 0 0 24px; font-size: 15.5px; }
-.suggestions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.suggestions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--muted);
+  max-width: none;
+}
 
 /* -------------------------------------------------------------- cards --- */
 
